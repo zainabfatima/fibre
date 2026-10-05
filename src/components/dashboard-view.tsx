@@ -7,6 +7,9 @@ export type DashboardProject = {
   name: string
   address: string | null
   totalSpent: string
+  moneyReceived: string
+  balance: string
+  balanceOwed: boolean
 }
 
 export function DashboardView({ projects }: { projects: DashboardProject[] }) {
@@ -34,14 +37,26 @@ export function DashboardView({ projects }: { projects: DashboardProject[] }) {
               href={`/projects/${project.id}`}
               className="rounded-xl border-l-4 border-l-primary bg-card p-4 ring-1 ring-foreground/15 hover:ring-primary/40"
             >
-              <h2 className="font-medium">{project.name}</h2>
-              <p className="text-sm text-muted-foreground">{project.address || "No address"}</p>
-              <p className="mt-4 text-sm text-muted-foreground">Total expense</p>
-              <p className="text-2xl font-semibold tabular-nums">{formatMoney(project.totalSpent)}</p>
+              <h2 className="font-medium break-words">{project.name}</h2>
+              <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
+              <dl className="mt-4 grid gap-2 border-t border-border pt-3">
+                <Amount label="Total expense" value={formatMoney(project.totalSpent)} />
+                <Amount label="Money received" value={formatMoney(project.moneyReceived)} />
+                <Amount label="Balance left" value={formatMoney(project.balance)} alert={project.balanceOwed} />
+              </dl>
             </Link>
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function Amount({ label, value, alert }: { label: string; value: string; alert?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className={`text-base font-semibold tabular-nums ${alert ? "text-red-700" : ""}`}>{value}</dd>
     </div>
   )
 }

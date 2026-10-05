@@ -98,6 +98,13 @@ export async function getInvoice(id: string) {
   return data
 }
 
+export async function listClientPaymentAmounts() {
+  const supabase = await requireAdmin()
+  const { data, error } = await supabase.from("client_payments").select("project_id, amount")
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
 export async function listClientPayments(projectId: string) {
   const supabase = await requireAdmin()
   const { data, error } = await supabase
