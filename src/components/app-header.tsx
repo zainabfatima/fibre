@@ -13,9 +13,6 @@ export function AppHeader() {
             Projects Expense Tracker
           </p>
           <nav className="flex min-w-0 flex-wrap items-center gap-1">
-            <Link href="/projects/new" className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
-              New project
-            </Link>
             <Link href="/settings/categories" className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
               Categories
             </Link>
