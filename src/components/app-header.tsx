@@ -9,6 +9,9 @@ export function AppHeader() {
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 px-3 py-2 sm:gap-3 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
           <BrandLogo href="/" />
+          <p className="min-w-0 text-[15px] font-semibold leading-tight break-words text-foreground sm:text-lg">
+            Projects Expense Tracker
+          </p>
           <nav className="flex min-w-0 flex-wrap items-center gap-1">
             <Link href="/projects/new" className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
               New project

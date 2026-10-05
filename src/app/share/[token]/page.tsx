@@ -62,8 +62,11 @@ export default async function SharePage({
   return (
     <div className="min-h-full">
       <header className="border-b-4 border-primary bg-card">
-        <div className="mx-auto flex w-full max-w-6xl items-center px-3 py-2 sm:px-4">
+        <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4">
           <BrandLogo />
+          <p className="min-w-0 text-[15px] font-semibold leading-tight break-words sm:text-lg">
+            Projects Expense Tracker
+          </p>
         </div>
       </header>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6">
