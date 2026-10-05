@@ -3,20 +3,27 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getSessionToken } from "@/lib/session"
 
-async function redirectToFile(
+function contentType(path: string) {
+  const lower = path.toLowerCase()
+  if (lower.endsWith(".png")) return "image/png"
+  if (lower.endsWith(".webp")) return "image/webp"
+  if (lower.endsWith(".pdf")) return "application/pdf"
+  return "image/jpeg"
+}
+
+async function sendStoredFile(
   request: Request,
   bucket: "receipts" | "invoices",
   path: string | null,
   projectId: string,
+  tokenFromPath?: string,
 ) {
   const url = new URL(request.url)
-  const token = url.searchParams.get("t")
+  const token = tokenFromPath || url.searchParams.get("t")
   const session = await getSessionToken()
   const admin = createAdminClient()
   if (!session) {
-    if (!token) {
-      return NextResponse.redirect(new URL("/login", request.url))
-    }
+    if (!token) return NextResponse.json({ error: "This link is not valid" }, { status: 401 })
     const { data: project } = await admin
       .from("projects")
       .select("id")
@@ -27,14 +34,23 @@ async function redirectToFile(
     }
   }
   if (!path) return NextResponse.json({ error: "No file" }, { status: 404 })
-  const signed = await admin.storage.from(bucket).createSignedUrl(path, 60)
-  if (signed.error || !signed.data) {
-    return NextResponse.json({ error: signed.error?.message ?? "File missing" }, { status: 404 })
+  const downloaded = await admin.storage.from(bucket).download(path)
+  if (downloaded.error || !downloaded.data) {
+    return NextResponse.json({ error: downloaded.error?.message ?? "File missing" }, { status: 404 })
   }
-  return NextResponse.redirect(signed.data.signedUrl)
+  const bytes = new Uint8Array(await downloaded.data.arrayBuffer())
+  const filename = path.split("/").pop() || "file"
+  return new NextResponse(bytes, {
+    headers: {
+      "Content-Type": contentType(path),
+      "Content-Disposition": `inline; filename="${filename}"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  })
 }
 
-export async function openReceipt(request: Request, expenseId: string) {
+export async function openReceipt(request: Request, expenseId: string, tokenFromPath?: string) {
   const admin = createAdminClient()
   const { data } = await admin
     .from("expenses")
@@ -42,10 +58,10 @@ export async function openReceipt(request: Request, expenseId: string) {
     .eq("id", expenseId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Receipt not found" }, { status: 404 })
-  return redirectToFile(request, "receipts", data.receipt_file_path, data.project_id)
+  return sendStoredFile(request, "receipts", data.receipt_file_path, data.project_id, tokenFromPath)
 }
 
-export async function openInvoice(request: Request, invoiceId: string) {
+export async function openInvoice(request: Request, invoiceId: string, tokenFromPath?: string) {
   const admin = createAdminClient()
   const { data } = await admin
     .from("invoices")
@@ -53,5 +69,5 @@ export async function openInvoice(request: Request, invoiceId: string) {
     .eq("id", invoiceId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-  return redirectToFile(request, "invoices", data.file_path, data.project_id)
+  return sendStoredFile(request, "invoices", data.file_path, data.project_id, tokenFromPath)
 }

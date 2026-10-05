@@ -24,8 +24,9 @@ export default async function ProjectLayout({
         <div>
           <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
           <p className="text-sm break-words text-muted-foreground">
-            {project.address || "No address"} · {project.client_name || "No client"} ·{" "}
-            {project.invoice_tracking ? "Invoice tracking · Money received" : "Money received from client"}
+            <span className="block sm:inline">{project.address || "No address"}</span>
+            <span className="hidden sm:inline"> · </span>
+            <span className="block sm:inline">{project.client_name || "No client"}</span>
           </p>
         </div>
       </div>

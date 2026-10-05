@@ -26,7 +26,7 @@ export function ProjectNav({
   ]
 
   return (
-    <nav className="flex gap-1 overflow-x-auto border-b border-border bg-background px-2 sm:px-4">
+    <nav className="flex touch-pan-x gap-1 overflow-x-auto overscroll-x-contain border-b border-border bg-background px-2 [-ms-overflow-style:none] [scrollbar-width:none] sm:px-4 [&::-webkit-scrollbar]:hidden">
       {links.map((link) => {
         const href = `${base}${link.href}`
         const active =

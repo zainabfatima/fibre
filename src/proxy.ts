@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { updateSession } from "@/lib/supabase/update-session"
 
 const SESSION_COOKIE = "fibre_session"
-const PUBLIC_PREFIXES = ["/login", "/auth", "/share", "/r", "/i"]
+const PUBLIC_PREFIXES = ["/login", "/auth", "/share", "/r", "/i", "/api/export"]
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PREFIXES.some(

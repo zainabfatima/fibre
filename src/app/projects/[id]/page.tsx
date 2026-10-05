@@ -1,6 +1,4 @@
-import { rotateShareToken } from "@/app/actions/projects"
 import { CategoryChart } from "@/components/category-chart"
-import { Button } from "@/components/ui/button"
 import { CategorySheets } from "@/components/category-sheets"
 import { type SheetRow } from "@/components/expense-sheet"
 import { MoneySummary } from "@/components/money-summary"
@@ -8,7 +6,6 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
 import { centsToMoney, moneyToCents, sumCents } from "@/lib/money"
 import {
-  appBaseUrl,
   getProject,
   getSummary,
   listCategoryTotals,
@@ -76,16 +73,9 @@ export default async function ProjectExpensesPage({
   return (
     <div>
       <div className="grid gap-4 px-4 pt-4">
-        <MoneySummary
-          invoiceTracking={project.invoice_tracking}
-          spentCents={spentCents}
-          receivedCents={receivedCents}
-          invoicedCents={moneyToCents(summary?.total_invoiced ?? 0)}
-          pendingCents={moneyToCents(summary?.total_pending ?? 0)}
-          notInvoicedCents={moneyToCents(summary?.total_not_invoiced ?? 0)}
-        />
+        <MoneySummary spentCents={spentCents} receivedCents={receivedCents} />
       </div>
-      <section className="m-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+      <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
         <h2 className="mb-4 font-medium">Expense by category</h2>
         <CategoryChart rows={chart} />
       </section>
@@ -100,33 +90,18 @@ export default async function ProjectExpensesPage({
         invoiceTracking={project.invoice_tracking}
         mode={needs ? "needs" : "all"}
       />
-      <div className="mx-4 mb-8 mt-2 grid gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="font-medium">Export and share</h2>
-        <form action={`/api/export/${id}`} className="flex flex-wrap items-center gap-3 text-sm">
-          <button className="rounded-lg bg-primary px-3 py-2 text-primary-foreground" type="submit">
-            Download Excel with receipts
-          </button>
-          <a className="underline" href={`/api/packet/${id}/all`}>
-            Download all category PDFs
-          </a>
-        </form>
-        <p className="text-sm text-muted-foreground">
-          The workbook has one sheet per category, including categories with no expenses, and the receipt picture on each row.
-        </p>
-        {project.share_token ? (
+      <div className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="hidden text-sm text-muted-foreground sm:block">
+            Category totals, amounts, and invoice status.
+          </p>
           <a
-            className="w-fit rounded-lg border border-border px-3 py-2 text-sm"
-            href={`${appBaseUrl()}/share/${project.share_token}`}
+            href={`/api/export/${id}`}
+            className="rounded-lg bg-primary px-3 py-3 text-center text-sm font-medium text-primary-foreground sm:py-2.5"
           >
-            Open client share link
+            Download Excel
           </a>
-        ) : (
-          <form action={async () => { "use server"; await rotateShareToken(id) }}>
-            <Button type="submit" variant="outline">
-              Create client share link
-            </Button>
-          </form>
-        )}
+        </div>
       </div>
     </div>
   )

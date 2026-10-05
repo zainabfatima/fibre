@@ -5,7 +5,7 @@ import { BrandLogo } from "@/components/brand-logo"
 
 export function AppHeader() {
   return (
-    <header className="sticky top-0 z-30 border-b-4 border-primary bg-card shadow-sm">
+    <header className="sticky top-0 z-30 border-b-4 border-primary bg-card pt-[env(safe-area-inset-top)] shadow-sm">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 px-3 py-2 sm:gap-3 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
           <BrandLogo href="/" />

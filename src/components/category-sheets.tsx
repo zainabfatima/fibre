@@ -73,7 +73,7 @@ export function CategorySheets({
   }
 
   return (
-    <div className="grid gap-4 px-4 pb-2">
+    <div className="flex flex-col gap-1 px-3 pb-2 sm:gap-4 sm:px-4">
       {shown.map(({ category, rows: sectionRows }) => (
         <CategoryBlock
           key={category.id}
@@ -106,17 +106,22 @@ export function CategorySheets({
         />
       ) : null}
       {preview ? (
-        <div className="fixed inset-0 z-20 grid place-items-center bg-black/50 p-4" onClick={() => setPreview(null)}>
-          <div className="max-h-[90vh] max-w-3xl overflow-auto rounded-xl bg-card p-4" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-40 grid place-items-end bg-black/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:place-items-center sm:p-4" onClick={() => setPreview(null)}>
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl bg-card p-4" onClick={(event) => event.stopPropagation()}>
             {preview.thumbUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={preview.thumbUrl} alt="Receipt" className="max-h-[70vh] w-full object-contain" />
             ) : (
               <p>Open the file to view this receipt.</p>
             )}
-            <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm underline">
-              Open full size
-            </a>
+            <div className="mt-3 flex gap-2">
+              <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
+                Open full size
+              </a>
+              <button type="button" onClick={() => setPreview(null)} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-4 text-sm">
+                Close
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -150,16 +155,162 @@ function CategoryBlock({
   onDelete: (row: SheetRow) => void
 }) {
   const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
+  if (rows.length === 0) {
+    return (
+      <>
+        <div className="flex items-baseline justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
+          <h3 className="min-w-0 text-sm leading-snug break-words text-muted-foreground">{title}</h3>
+          <p className="shrink-0 text-sm tabular-nums text-muted-foreground">{total}</p>
+        </div>
+        <section className="hidden overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:block">
+          <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted px-3 py-2">
+            <h3 className="font-medium">{title}</h3>
+            <p className="text-sm tabular-nums">{total}</p>
+          </header>
+          <p className="px-3 py-3 text-sm text-muted-foreground">No expenses</p>
+        </section>
+      </>
+    )
+  }
   return (
-    <section className="overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10">
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted px-3 py-2">
-        <h3 className="font-medium">{title}</h3>
-        <p className="text-sm tabular-nums">{total}</p>
+    <section className="mt-2 overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:mt-0">
+      <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted px-3 py-3">
+        <h3 className="min-w-0 font-medium leading-snug break-words">{title}</h3>
+        <p className="shrink-0 text-base font-semibold tabular-nums">{total}</p>
       </header>
-      {rows.length === 0 ? (
-        <p className="px-3 py-3 text-sm text-muted-foreground">No expenses</p>
-      ) : (
-        <div className="overflow-x-auto">
+      <>
+        <div className="grid md:hidden">
+          {rows.map((row) => (
+            <article key={row.id} className="border-b border-border/70 p-3">
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  onClick={() => onPreview(row)}
+                  className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-muted text-[10px]"
+                >
+                  {row.thumbUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={row.thumbUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    "Receipt"
+                  )}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium leading-snug break-words">{row.vendor || "Receipt"}</p>
+                    <p className="shrink-0 text-base font-semibold tabular-nums">{formatMoney(row.amount)}</p>
+                  </div>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>
+                  {invoiceTracking ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-sm">{row.invoiceNumber ? `Invoice ${row.invoiceNumber}` : "No invoice"}</span>
+                      <StatusBadge kind="invoice" status={row.invoiceId ? row.billingStatus : "not_invoiced"} />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className={`mt-3 grid gap-2 ${invoiceTracking ? "grid-cols-2" : "grid-cols-1"}`}>
+                <button
+                  type="button"
+                  onClick={() => onPreview(row)}
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                >
+                  View receipt
+                </button>
+                {invoiceTracking && row.invoiceId && row.hasInvoiceFile ? (
+                  <a
+                    href={`/i/${row.invoiceId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                  >
+                    View invoice
+                  </a>
+                ) : invoiceTracking ? (
+                  <span className="inline-flex min-h-11 items-center justify-center rounded-lg bg-muted px-3 text-center text-sm text-muted-foreground">
+                    No invoice file
+                  </span>
+                ) : null}
+              </div>
+              <details className="mt-2">
+                <summary className="min-h-11 cursor-pointer list-none py-2 text-sm font-medium text-muted-foreground">
+                  Edit this expense
+                </summary>
+                <div className="grid gap-3 pb-2">
+                  <label className="grid gap-1 text-sm">
+                    <span className="text-muted-foreground">Amount</span>
+                    <input
+                      key={`${row.id}-${row.amount}`}
+                      defaultValue={formatMoney(row.amount).replace("$", "")}
+                      onBlur={(event) => onAmount(row, event.target.value)}
+                      inputMode="decimal"
+                      className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base tabular-nums"
+                    />
+                  </label>
+                  {invoiceTracking ? (
+                    <>
+                      <label className="grid gap-1 text-sm">
+                        <span className="text-muted-foreground">Invoice #</span>
+                        <input
+                          key={`${row.id}-${row.invoiceNumber ?? ""}`}
+                          defaultValue={row.invoiceNumber ?? ""}
+                          onBlur={(event) => onInvoice(row, event.target.value)}
+                          className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base"
+                        />
+                      </label>
+                      {row.invoiceId ? (
+                        <label className="grid gap-1 text-sm">
+                          <span className="text-muted-foreground">Invoice status</span>
+                          <select
+                            value={row.billingStatus}
+                            onChange={(event) => onStatus(row, event.target.value as "unpaid" | "paid" | "partial")}
+                            className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base"
+                          >
+                            <option value="unpaid">Unpaid</option>
+                            <option value="paid">Paid</option>
+                            <option value="partial">Partial</option>
+                          </select>
+                        </label>
+                      ) : null}
+                      {row.invoiceId && !row.hasInvoiceFile ? (
+                        <form action={uploadInvoiceFile}>
+                          <input type="hidden" name="invoiceId" value={row.invoiceId} />
+                          <input type="hidden" name="projectId" value={projectId} />
+                          <input
+                            name="file"
+                            type="file"
+                            accept="image/*,application/pdf"
+                            aria-label={`Upload invoice ${row.invoiceNumber ?? ""}`}
+                            className="w-full text-base"
+                            onChange={(event) => {
+                              if (event.target.files?.length) event.currentTarget.form?.requestSubmit()
+                            }}
+                          />
+                        </form>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <ChangeCategoryCell
+                      categories={categories}
+                      currentId={row.categoryId}
+                      onChange={(categoryId) => onCategory(row, categoryId)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onDelete(row)}
+                      className="h-11 rounded-lg border border-input px-3 text-sm text-destructive"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </article>
+          ))}
+          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">Total {total}</p>
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
@@ -283,7 +434,7 @@ function CategoryBlock({
             </tbody>
           </table>
         </div>
-      )}
+        </>
     </section>
   )
 }
@@ -303,7 +454,7 @@ function ChangeCategoryCell({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="h-9 whitespace-nowrap rounded-lg border border-input px-2 text-sm"
+        className="h-11 whitespace-nowrap rounded-lg border border-input px-3 text-sm md:h-9"
       >
         Change category
       </button>
@@ -323,7 +474,7 @@ function ChangeCategoryCell({
       onBlur={() => {
         window.setTimeout(() => setOpen(false), 150)
       }}
-      className="h-9 max-w-56 rounded-lg border border-input bg-transparent px-2 text-sm"
+        className="h-11 w-full max-w-full rounded-lg border border-input bg-transparent px-2 text-base md:h-9 md:max-w-56 md:text-sm"
     >
       {currentId == null ? <option value="">Pick a category</option> : null}
       {categories.map((category) => (

@@ -1,7 +1,7 @@
-import { rotateShareToken, revokeShareToken, saveBudgets } from "@/app/actions/projects"
+import { saveBudgets } from "@/app/actions/projects"
 import { ProjectForm } from "@/components/project-form"
 import { Button } from "@/components/ui/button"
-import { appBaseUrl, getProject, listBudgets, listCategories } from "@/lib/queries"
+import { getProject, listBudgets, listCategories } from "@/lib/queries"
 import { formatCategory } from "@/lib/format"
 
 export const dynamic = "force-dynamic"
@@ -19,34 +19,12 @@ export default async function ProjectSettingsPage({
   ])
   if (!project) return null
   const budgetByCategory = new Map(budgets.map((budget) => [budget.category_id, budget.budget_amount]))
-  const share = project.share_token
-    ? `${appBaseUrl()}/share/${project.share_token}`
-    : null
 
   return (
     <div className="grid gap-8 px-4 py-4 lg:grid-cols-2">
       <section className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
         <h2 className="mb-4 font-medium">Project</h2>
         <ProjectForm project={project} />
-      </section>
-      <section className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-        <h2 className="font-medium">Client share link</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Anyone with this link can view receipts and invoices. They cannot edit.
-        </p>
-        {share ? <p className="mt-3 break-all text-sm">{share}</p> : <p className="mt-3 text-sm">No active link.</p>}
-        <div className="mt-3 flex gap-2">
-          <form action={async () => { "use server"; await rotateShareToken(id) }}>
-            <Button type="submit">{share ? "Regenerate" : "Create link"}</Button>
-          </form>
-          {share ? (
-            <form action={async () => { "use server"; await revokeShareToken(id) }}>
-              <Button type="submit" variant="outline">
-                Revoke
-              </Button>
-            </form>
-          ) : null}
-        </div>
       </section>
       <section className="lg:col-span-2">
         <h2 className="mb-3 font-medium">Category budgets</h2>

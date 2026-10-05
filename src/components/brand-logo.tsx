@@ -2,7 +2,7 @@ import Image from "next/image"
 import Link from "next/link"
 
 const sizes = {
-  header: "h-14 w-auto sm:h-16",
+  header: "h-11 w-auto sm:h-16",
   login: "h-32 w-auto sm:h-40",
 }
 

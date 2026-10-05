@@ -37,7 +37,25 @@ export default async function InvoicesPage({
           No invoices yet. Add an invoice number on the expense sheet.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+        <>
+        <div className="grid gap-3 md:hidden">
+          {invoices.map((invoice) => (
+            <article key={invoice.id} className="grid gap-1 rounded-xl bg-card p-4 text-sm ring-1 ring-foreground/10">
+              <Link href={`/projects/${id}/invoices/${invoice.id}`} className="font-medium underline">
+                {invoice.invoice_number}
+              </Link>
+              <p className="text-muted-foreground">{invoice.invoice_date}</p>
+              <p className="tabular-nums">{formatMoney(invoice.subtotal)}</p>
+              <StatusBadge kind="invoice" status={invoice.status} />
+              {invoice.file_path ? (
+                <a href={`/i/${invoice.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline">
+                  View file
+                </a>
+              ) : null}
+            </article>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto rounded-xl ring-1 ring-foreground/10 md:block">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border text-left">
@@ -79,6 +97,7 @@ export default async function InvoicesPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   )

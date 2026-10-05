@@ -26,14 +26,7 @@ export default async function PaymentsPage({
           Add each payment with its date. Balance left is total expense minus these amounts.
         </p>
       </div>
-      <MoneySummary
-        invoiceTracking={false}
-        spentCents={spentCents}
-        receivedCents={receivedCents}
-        invoicedCents={0}
-        pendingCents={0}
-        notInvoicedCents={0}
-      />
+      <MoneySummary spentCents={spentCents} receivedCents={receivedCents} />
       <PaymentForm projectId={id} />
       <PaymentList
         projectId={id}

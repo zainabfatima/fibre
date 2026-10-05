@@ -21,8 +21,30 @@ export function CategoryChart({
     return <p className="text-sm text-muted-foreground">No categories yet.</p>
   }
 
+  const max = Math.max(...rows.map((row) => row.cents), 1)
   return (
-    <div className="max-h-[70vh] overflow-auto">
+    <>
+      <ul className="grid gap-2.5 md:hidden">
+        {rows.map((row) => (
+          <li key={row.name}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className={`min-w-0 break-words ${row.cents > 0 ? "font-medium" : "text-muted-foreground"}`}>
+                {row.name}
+              </span>
+              <span className={`shrink-0 tabular-nums ${row.cents > 0 ? "font-semibold" : "text-muted-foreground"}`}>
+                {formatMoney(centsToMoney(row.cents))}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${Math.max(row.cents > 0 ? 6 : 0, (row.cents / max) * 100)}%` }}
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="hidden max-h-[70vh] overflow-auto md:block">
       <div className="min-w-[640px]" style={{ height: Math.max(420, rows.length * 36) }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
@@ -49,6 +71,7 @@ export function CategoryChart({
         </BarChart>
       </ResponsiveContainer>
       </div>
-    </div>
+      </div>
+    </>
   )
 }

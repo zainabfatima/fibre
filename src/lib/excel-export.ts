@@ -11,12 +11,18 @@ import type { CategoryTotalRow, ExpenseRow, InvoiceRow, ProjectRow, SummaryRow }
 
 type ReceiptImage = { buffer: Buffer; extension: "jpeg" | "png" }
 
-function picturePath(row: ExpenseRow) {
-  const file = row.receipt_file_path.toLowerCase()
-  if (file.endsWith(".png") || file.endsWith(".jpg") || file.endsWith(".jpeg")) {
-    return row.receipt_file_path
+function rasterKind(bytes: Buffer): "jpeg" | "png" | null {
+  if (bytes.length > 8 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg"
+  if (
+    bytes.length > 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "png"
   }
-  return row.receipt_thumbnail_path
+  return null
 }
 
 async function loadPicture(path: string): Promise<ReceiptImage | null> {
@@ -24,12 +30,24 @@ async function loadPicture(path: string): Promise<ReceiptImage | null> {
   const { data, error } = await supabase.storage.from("receipts").download(path)
   if (error || !data) return null
   const bytes = Buffer.from(await data.arrayBuffer())
-  const extension = path.toLowerCase().endsWith(".png") ? "png" : "jpeg"
+  const extension = rasterKind(bytes)
+  if (!extension) return null
   return { buffer: bytes, extension }
 }
 
+function pictureCandidates(row: ExpenseRow) {
+  const file = row.receipt_file_path
+  const lower = file.toLowerCase()
+  const paths: string[] = []
+  if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")) paths.push(file)
+  if (row.receipt_thumbnail_path && !paths.includes(row.receipt_thumbnail_path)) {
+    paths.push(row.receipt_thumbnail_path)
+  }
+  return paths
+}
+
 async function loadPictures(rows: ExpenseRow[]) {
-  const paths = [...new Set(rows.map(picturePath).filter((path): path is string => Boolean(path)))]
+  const paths = [...new Set(rows.flatMap(pictureCandidates))]
   const images = new Map<string, ReceiptImage>()
   let cursor = 0
   async function worker() {
@@ -71,11 +89,7 @@ export async function buildWorkbook(input: {
   includeUnverified: boolean
   byCategory: boolean
 }) {
-  const base = appBaseUrl()
-  const token = input.project.share_token
-  const href = (path: string) => `${base}${path}${token ? `?t=${token}` : ""}`
   const rows = input.expenses
-  const pictures = await loadPictures(rows)
 
   const workbook = new ExcelJS.Workbook()
   workbook.creator = "Fibre"
@@ -111,115 +125,46 @@ export async function buildWorkbook(input: {
   summary.getColumn(4).numFmt = '"$"#,##0.00'
   summary.getColumn(5).numFmt = '"$"#,##0.00'
 
-  const imageIds = new Map<string, number>()
-  const imageIdFor = (path: string) => {
-    const existing = imageIds.get(path)
-    if (existing != null) return existing
-    const image = pictures.get(path)
-    if (!image) return null
-    const id = workbook.addImage({
-      buffer: image.buffer as unknown as ExcelJS.Buffer,
-      extension: image.extension,
-    })
-    imageIds.set(path, id)
-    return id
-  }
-
-  const addExpenseSheet = (name: string, sheetRows: ExpenseRow[], withPictures: boolean) => {
+  const addExpenseSheet = (name: string, sheetRows: ExpenseRow[]) => {
     const sheet = workbook.addWorksheet(sheetTitle(name))
-    sheet.addRow([
-      "#",
-      "Date",
-      "Vendor",
-      "Description",
-      "Category",
-      "Amount",
-      "Receipt",
-      "Invoice #",
-      "Invoice",
-      "Invoice status",
-    ])
-    sheetRows.forEach((row, index) => {
-      const added = sheet.addRow([
-        index + 1,
+    sheet.addRow(["Date", "Vendor", "Amount", "Invoice #", "Invoice status"])
+    sheet.getColumn(3).numFmt = '"$"#,##0.00'
+    sheet.getColumn(1).width = 14
+    sheet.getColumn(2).width = 28
+    sheet.getColumn(3).width = 16
+    sheet.getColumn(4).width = 18
+    sheet.getColumn(5).width = 18
+    for (const row of sheetRows) {
+      sheet.addRow([
         row.expense_date,
         row.vendor,
-        row.description,
-        row.category_code && row.category_name
-          ? formatCategory(row.category_code, row.category_name)
-          : "",
         Number(row.amount),
-        "Open receipt",
         row.invoice_number ?? "",
-        row.invoice_id ? "Open invoice" : "",
         invoiceStatusLabel(row.invoice_status),
       ])
-      const receipt = added.getCell(7)
-      receipt.value = linkCell(href(`/r/${row.id}`), "Open receipt")
-      receipt.font = { color: { argb: "FF1D4E89" }, underline: true }
-      if (row.invoice_id) {
-        const invoice = added.getCell(9)
-        invoice.value = linkCell(href(`/i/${row.invoice_id}`), "Open invoice")
-        invoice.font = { color: { argb: "FF1D4E89" }, underline: true }
-      }
-      const path = picturePath(row)
-      const imageId = withPictures && path ? imageIdFor(path) : null
-      if (imageId != null) {
-        added.height = 90
-        sheet.addImage(imageId, {
-          tl: { col: 6, row: added.number - 1 },
-          ext: { width: 96, height: 96 },
-          editAs: "oneCell",
-        })
-      }
-    })
+    }
     const last = Math.max(sheet.rowCount, 2)
-    const totalRow = sheet.addRow([
-      "",
-      "",
-      "",
-      "",
-      "Total",
-      { formula: `SUBTOTAL(109,F2:F${last})` },
-    ])
+    const totalRow = sheet.addRow(["", "Total", { formula: `SUBTOTAL(109,C2:C${last})` }])
     totalRow.font = { bold: true }
-    sheet.getColumn(6).numFmt = '"$"#,##0.00'
     sheet.views = [{ state: "frozen", ySplit: 1 }]
-    sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: last, column: 10 } }
-    sheet.columns.forEach((column) => {
-      column.width = 18
-    })
-    sheet.getColumn(4).width = 36
-    if (withPictures) sheet.getColumn(7).width = 16
+    if (sheet.rowCount > 1) {
+      sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: last, column: 5 } }
+    }
   }
 
-  addExpenseSheet("Expenses", rows, true)
+  addExpenseSheet("Expenses", rows)
 
   const invoices = workbook.addWorksheet("Invoices")
-  invoices.addRow([
-    "Number",
-    "Date",
-    "Expenses",
-    "Amount",
-    "Status",
-    "Paid",
-    "File",
-  ])
+  invoices.addRow(["Number", "Date", "Expenses", "Amount", "Status", "Paid"])
   for (const invoice of input.invoices) {
-    const added = invoices.addRow([
+    invoices.addRow([
       invoice.invoice_number,
       invoice.invoice_date,
       input.invoiceCounts.get(invoice.id) ?? 0,
       Number(invoice.subtotal),
       invoice.status,
       Number(invoice.amount_paid),
-      invoice.file_path ? "Open invoice" : "",
     ])
-    if (invoice.file_path) {
-      const cell = added.getCell(7)
-      cell.value = linkCell(href(`/i/${invoice.id}`), "Open invoice")
-      cell.font = { color: { argb: "FF1D4E89" }, underline: true }
-    }
   }
   ;[4, 6].forEach((column) => {
     invoices.getColumn(column).numFmt = '"$"#,##0.00'
@@ -228,22 +173,18 @@ export async function buildWorkbook(input: {
   if (invoices.rowCount > 1) {
     invoices.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: invoices.rowCount, column: 7 },
+      to: { row: invoices.rowCount, column: 6 },
     }
   }
 
   const missing = input.expenses.filter(
     (row) => !row.invoice_id,
   )
-  addExpenseSheet("Not Invoiced", missing, true)
+  addExpenseSheet("Not Invoiced", missing)
 
   for (const category of input.categories) {
     const group = rows.filter((row) => row.category_id === category.category_id)
-    addExpenseSheet(
-      `${String(category.code).padStart(2, "0")} ${category.name}`,
-      group,
-      true,
-    )
+    addExpenseSheet(`${String(category.code).padStart(2, "0")} ${category.name}`, group)
   }
 
   const buffer = await workbook.xlsx.writeBuffer()
