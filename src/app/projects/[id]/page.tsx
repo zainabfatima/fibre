@@ -114,7 +114,7 @@ export default async function ProjectExpensesPage({
       <div className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="hidden text-sm text-muted-foreground sm:block">
-            Category totals, amounts, and invoice status.
+            Category names, each amount, and the company on the receipt.
           </p>
           <a
             href={`/api/export/${id}`}

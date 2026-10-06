@@ -108,6 +108,8 @@ export function CategorySheets({
           matchIds={matchIds}
           activeIndex={activeIndex}
           projectId={projectId}
+          categoryKey={category.id}
+          needs={mode === "needs"}
           invoiceTracking={invoiceTracking}
           categories={categories}
           onPreview={setPreview}
@@ -125,6 +127,8 @@ export function CategorySheets({
           matchIds={matchIds}
           activeIndex={activeIndex}
           projectId={projectId}
+          categoryKey="none"
+          needs={mode === "needs"}
           invoiceTracking={invoiceTracking}
           categories={categories}
           onPreview={setPreview}
@@ -166,6 +170,8 @@ function CategoryBlock({
   matchIds,
   activeIndex,
   projectId,
+  categoryKey,
+  needs,
   invoiceTracking,
   categories,
   onPreview,
@@ -181,6 +187,8 @@ function CategoryBlock({
   matchIds: string[]
   activeIndex: number
   projectId: string
+  categoryKey: number | "none"
+  needs: boolean
   invoiceTracking: boolean
   categories: CategoryOption[]
   onPreview: (row: SheetRow) => void
@@ -195,14 +203,20 @@ function CategoryBlock({
   if (rows.length === 0) {
     return (
       <>
-        <div className="flex items-start justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
-          <CategoryBudgetHeading title={title} budget={budgetText} spent={total} compact />
+        <div className="border-b border-border/70 px-1 py-2.5 md:hidden">
+          <div className="flex items-start justify-between gap-3">
+            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} compact />
+          </div>
+          <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} fullWidth />
         </div>
         <section className="hidden overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:block">
           <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-2">
             <CategoryBudgetHeading title={title} budget={budgetText} spent={total} />
           </header>
-          <p className="px-3 py-3 text-sm text-muted-foreground">No expenses</p>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
+            <p className="text-sm text-muted-foreground">No expenses</p>
+            <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
+          </div>
         </section>
       </>
     )
@@ -353,9 +367,12 @@ function CategoryBlock({
               </details>
             </article>
           ))}
-          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">
-            {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
-          </p>
+          <div className="bg-muted/60 px-3 py-3">
+            <p className="text-sm font-semibold tabular-nums">
+              {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+            </p>
+            <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} fullWidth />
+          </div>
         </div>
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[960px] text-sm">
@@ -480,13 +497,41 @@ function CategoryBlock({
                   Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
-                <td colSpan={invoiceTracking ? 6 : 3} />
+                <td className="px-3 py-2" colSpan={invoiceTracking ? 6 : 3}>
+                  <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         </>
     </section>
+  )
+}
+
+function CategoryPdfLink({
+  projectId,
+  categoryKey,
+  title,
+  needs,
+  fullWidth = false,
+}: {
+  projectId: string
+  categoryKey: number | "none"
+  title: string
+  needs: boolean
+  fullWidth?: boolean
+}) {
+  const href = `/api/packet/${projectId}/${categoryKey}${needs ? "?needs=1" : ""}`
+  return (
+    <a
+      href={href}
+      download
+      aria-label={`Download PDF for ${title}`}
+      className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-input bg-background px-3 text-sm font-medium ${fullWidth ? "mt-2 w-full" : ""}`}
+    >
+      Category PDF
+    </a>
   )
 }
 
