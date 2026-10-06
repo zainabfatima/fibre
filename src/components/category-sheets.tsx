@@ -1,17 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { assignInvoiceNumber, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
+import { CategoryBudgetHeading } from "@/components/category-budget-heading"
+import { useExpenseSearch } from "@/components/expense-amount-search"
 import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { formatCategory } from "@/lib/format"
 import { centsToMoney, formatMoney, sumCents } from "@/lib/money"
 
-type CategoryOption = { id: number; code: number; name: string }
+type CategoryOption = { id: number; code: number; name: string; budget: string | number }
 
 export function CategorySheets({
   projectId,
@@ -35,6 +37,29 @@ export function CategorySheets({
   }))
   const uncategorized = scoped.filter((row) => row.categoryId == null)
   const shown = mode === "needs" ? sections.filter((section) => section.rows.length > 0) : sections
+  const search = useExpenseSearch()
+  const matchIds = search?.matchIds ?? []
+  const activeIndex = search?.activeIndex ?? 0
+  const searchQuery = search?.query ?? ""
+  const seenQuery = useRef(searchQuery)
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim()
+    if (!trimmed || matchIds.length === 0) {
+      seenQuery.current = searchQuery
+      return
+    }
+    const id = matchIds[activeIndex]
+    if (!id) return
+    const delay = seenQuery.current === searchQuery ? 0 : 200
+    seenQuery.current = searchQuery
+    const timer = window.setTimeout(() => {
+      const nodes = document.querySelectorAll<HTMLElement>(`[data-expense-id="${CSS.escape(id)}"]`)
+      const visible = Array.from(nodes).find((node) => node.getClientRects().length > 0)
+      visible?.scrollIntoView({ behavior: "smooth", block: "center" })
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [searchQuery, matchIds, activeIndex])
 
   async function saveAmount(row: SheetRow, value: string) {
     const result = await updateExpenseFields({ projectId, expenseId: row.id, amount: value })
@@ -78,7 +103,10 @@ export function CategorySheets({
         <CategoryBlock
           key={category.id}
           title={formatCategory(category.code, category.name)}
+          budget={category.budget}
           rows={sectionRows}
+          matchIds={matchIds}
+          activeIndex={activeIndex}
           projectId={projectId}
           invoiceTracking={invoiceTracking}
           categories={categories}
@@ -94,6 +122,8 @@ export function CategorySheets({
         <CategoryBlock
           title="Uncategorized"
           rows={uncategorized}
+          matchIds={matchIds}
+          activeIndex={activeIndex}
           projectId={projectId}
           invoiceTracking={invoiceTracking}
           categories={categories}
@@ -131,7 +161,10 @@ export function CategorySheets({
 
 function CategoryBlock({
   title,
+  budget,
   rows,
+  matchIds,
+  activeIndex,
   projectId,
   invoiceTracking,
   categories,
@@ -143,7 +176,10 @@ function CategoryBlock({
   onDelete,
 }: {
   title: string
+  budget?: string | number | null
   rows: SheetRow[]
+  matchIds: string[]
+  activeIndex: number
   projectId: string
   invoiceTracking: boolean
   categories: CategoryOption[]
@@ -155,17 +191,16 @@ function CategoryBlock({
   onDelete: (row: SheetRow) => void
 }) {
   const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
+  const budgetText = budget == null ? null : formatMoney(budget)
   if (rows.length === 0) {
     return (
       <>
-        <div className="flex items-baseline justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
-          <h3 className="min-w-0 text-sm leading-snug break-words text-muted-foreground">{title}</h3>
-          <p className="shrink-0 text-sm tabular-nums text-muted-foreground">{total}</p>
+        <div className="flex items-start justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
+          <CategoryBudgetHeading title={title} budget={budgetText} spent={total} compact />
         </div>
         <section className="hidden overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:block">
-          <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted px-3 py-2">
-            <h3 className="font-medium">{title}</h3>
-            <p className="text-sm tabular-nums">{total}</p>
+          <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-2">
+            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} />
           </header>
           <p className="px-3 py-3 text-sm text-muted-foreground">No expenses</p>
         </section>
@@ -174,14 +209,17 @@ function CategoryBlock({
   }
   return (
     <section className="mt-2 overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:mt-0">
-      <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted px-3 py-3">
-        <h3 className="min-w-0 font-medium leading-snug break-words">{title}</h3>
-        <p className="shrink-0 text-base font-semibold tabular-nums">{total}</p>
+      <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-3">
+        <CategoryBudgetHeading title={title} budget={budgetText} spent={total} />
       </header>
       <>
         <div className="grid md:hidden">
           {rows.map((row) => (
-            <article key={row.id} className="border-b border-border/70 p-3">
+            <article
+              key={row.id}
+              data-expense-id={row.id}
+              className={`scroll-mt-48 border-b border-border/70 p-3 ${expenseHighlight(matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+            >
               <div className="flex items-start gap-3">
                 <button
                   type="button"
@@ -201,7 +239,11 @@ function CategoryBlock({
                       {row.vendor || "Receipt"}
                       {row.pageCount && row.pageCount > 1 ? ` · ${row.pageCount} pages` : ""}
                     </p>
-                    <p className="shrink-0 text-base font-semibold tabular-nums">{formatMoney(row.amount)}</p>
+                    <p
+                      className={`shrink-0 text-base font-semibold tabular-nums ${matchIds.includes(row.id) ? "rounded-md bg-primary/25 px-1.5" : ""}`}
+                    >
+                      {formatMoney(row.amount)}
+                    </p>
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>
                   {invoiceTracking ? (
@@ -311,7 +353,9 @@ function CategoryBlock({
               </details>
             </article>
           ))}
-          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">Total {total}</p>
+          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">
+            {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+          </p>
         </div>
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[960px] text-sm">
@@ -334,7 +378,11 @@ function CategoryBlock({
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className="border-b border-border/70">
+                <tr
+                  key={row.id}
+                  data-expense-id={row.id}
+                  className={`scroll-mt-48 border-b border-border/70 ${expenseHighlight(matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+                >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
                   <td className="px-3 py-2">
@@ -343,7 +391,7 @@ function CategoryBlock({
                       defaultValue={formatMoney(row.amount).replace("$", "")}
                       onBlur={(event) => onAmount(row, event.target.value)}
                       inputMode="decimal"
-                      className="h-9 w-24 rounded-lg border border-input bg-transparent px-2 text-right text-sm tabular-nums"
+                      className={`h-9 w-24 rounded-lg border px-2 text-right text-sm tabular-nums ${matchIds.includes(row.id) ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -429,7 +477,7 @@ function CategoryBlock({
               ))}
               <tr className="bg-muted/60 font-medium">
                 <td className="px-3 py-2" colSpan={2}>
-                  Total
+                  Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
                 <td colSpan={invoiceTracking ? 6 : 3} />
@@ -440,6 +488,12 @@ function CategoryBlock({
         </>
     </section>
   )
+}
+
+function expenseHighlight(matched: boolean, active: boolean) {
+  if (!matched) return ""
+  const tint = "bg-amber-100 dark:bg-amber-950/50"
+  return active ? `${tint} ring-2 ring-inset ring-primary` : tint
 }
 
 function ChangeCategoryCell({

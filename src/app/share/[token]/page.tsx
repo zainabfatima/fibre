@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation"
 
 import { BrandLogo } from "@/components/brand-logo"
+import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { CategoryChart } from "@/components/category-chart"
 import { StatusBadge } from "@/components/status-badge"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -29,7 +30,7 @@ export default async function SharePage({
     admin.from("client_payments").select("amount").eq("project_id", project.id),
   ])
 
-  const rows = expenses ?? []
+  const rows = (expenses ?? []).filter((row) => row.verification_status === "verified")
   const paths = rows
     .map((row) => row.receipt_thumbnail_path)
     .filter((path): path is string => Boolean(path))
@@ -55,6 +56,7 @@ export default async function SharePage({
   const sections = (totals ?? []).map((category) => ({
     id: category.category_id,
     title: formatCategory(category.code, category.name),
+    budget: category.budget ?? 0,
     rows: grouped.get(category.category_id) ?? [],
   }))
   const uncategorized = grouped.get(null) ?? []
@@ -95,6 +97,7 @@ export default async function SharePage({
           <CategorySection
             key={section.id}
             title={section.title}
+            budget={section.budget}
             rows={section.rows}
             token={token}
             thumbs={thumbs}
@@ -137,12 +140,14 @@ function SummaryCard({
 
 function CategorySection({
   title,
+  budget,
   rows,
   token,
   thumbs,
   invoiceTracking,
 }: {
   title: string
+  budget?: string | number | null
   rows: Array<{
     id: string
     expense_date: string | null
@@ -161,17 +166,16 @@ function CategorySection({
   invoiceTracking: boolean
 }) {
   const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
+  const budgetText = budget == null ? null : formatMoney(budget)
   if (rows.length === 0) {
     return (
       <>
-        <div className="flex items-baseline justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
-          <h2 className="min-w-0 text-sm leading-snug break-words text-muted-foreground">{title}</h2>
-          <p className="shrink-0 text-sm tabular-nums text-muted-foreground">{total}</p>
+        <div className="flex items-start justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
+          <CategoryBudgetHeading title={title} budget={budgetText} spent={total} compact heading="h2" />
         </div>
         <section className="hidden overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:block">
-          <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted px-3 py-2">
-            <h2 className="font-medium">{title}</h2>
-            <p className="text-sm tabular-nums">{total}</p>
+          <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-2">
+            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} heading="h2" />
           </header>
           <p className="px-3 py-3 text-sm text-muted-foreground">No expenses</p>
         </section>
@@ -180,9 +184,8 @@ function CategorySection({
   }
   return (
     <section className="mt-2 overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:mt-0">
-      <header className="flex items-baseline justify-between gap-3 border-b border-border bg-muted px-3 py-3">
-        <h2 className="min-w-0 font-medium leading-snug break-words">{title}</h2>
-        <p className="shrink-0 text-base font-semibold tabular-nums">{total}</p>
+      <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-3">
+        <CategoryBudgetHeading title={title} budget={budgetText} spent={total} heading="h2" />
       </header>
         <>
         <div className="grid md:hidden">
@@ -230,7 +233,9 @@ function CategorySection({
               </article>
             )
           })}
-          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">Total {total}</p>
+          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">
+            {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+          </p>
         </div>
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[720px] text-sm">
@@ -297,7 +302,7 @@ function CategorySection({
               })}
               <tr className="bg-muted/60 font-medium">
                 <td className="px-3 py-2" colSpan={2}>
-                  Total
+                  Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
                 <td colSpan={invoiceTracking ? 4 : 1} />

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { requireAdmin } from "@/lib/db"
-import { centsToMoney, parseMoneyInput } from "@/lib/money"
+import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
 
 export type ActionState = { error: string | null }
 
@@ -87,22 +87,40 @@ export async function updateProject(
 export async function saveBudgets(formData: FormData): Promise<void> {
   const projectId = String(formData.get("projectId") ?? "")
   const supabase = await requireAdmin()
-  const rows: { project_id: string; category_id: number; budget_amount: string }[] = []
+  const { data: categories, error: categoryError } = await supabase
+    .from("categories")
+    .select("id, default_budget")
+  if (categoryError) throw new Error(categoryError.message)
+  const defaults = new Map(
+    (categories ?? []).map((category) => [
+      category.id,
+      category.default_budget == null ? 0 : moneyToCents(category.default_budget),
+    ]),
+  )
+  const rows: {
+    project_id: string
+    category_id: number
+    budget_amount: string
+    budget_override: boolean
+  }[] = []
   const clear: number[] = []
   for (const [key, value] of formData.entries()) {
     if (!key.startsWith("budget_")) continue
     const categoryId = Number(key.slice("budget_".length))
+    if (!Number.isInteger(categoryId)) continue
     const text = String(value).trim()
-    if (!text) {
+    const cents = text ? parseMoneyInput(text) : 0
+    if (cents == null || cents < 0) throw new Error("A budget amount is not valid")
+    const systemDefault = defaults.get(categoryId) ?? 0
+    if (cents === systemDefault) {
       clear.push(categoryId)
       continue
     }
-    const cents = parseMoneyInput(text)
-    if (cents == null) throw new Error("A budget amount is not valid")
     rows.push({
       project_id: projectId,
       category_id: categoryId,
       budget_amount: centsToMoney(cents),
+      budget_override: true,
     })
   }
   if (clear.length) {
@@ -119,8 +137,14 @@ export async function saveBudgets(formData: FormData): Promise<void> {
       .upsert(rows, { onConflict: "project_id,category_id" })
     if (error) throw new Error(error.message)
   }
+  const { data: project } = await supabase
+    .from("projects")
+    .select("share_token")
+    .eq("id", projectId)
+    .maybeSingle()
   revalidatePath(`/projects/${projectId}`)
   revalidatePath(`/projects/${projectId}/settings`)
+  if (project?.share_token) revalidatePath(`/share/${project.share_token}`)
 }
 
 export async function rotateShareToken(projectId: string) {

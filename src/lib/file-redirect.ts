@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { clientSessionOwnsProject } from "@/lib/client-access"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getSessionToken } from "@/lib/session"
 
@@ -16,13 +17,14 @@ async function sendStoredFile(
   bucket: "receipts" | "invoices",
   path: string | null,
   projectId: string,
-  tokenFromPath?: string,
+  tokenFromPath: string | undefined,
+  clientAllowed: boolean,
 ) {
   const url = new URL(request.url)
   const token = tokenFromPath || url.searchParams.get("t")
   const session = await getSessionToken()
   const admin = createAdminClient()
-  if (!session) {
+  if (!session && !clientAllowed) {
     if (!token) return NextResponse.json({ error: "This link is not valid" }, { status: 401 })
     const { data: project } = await admin
       .from("projects")
@@ -54,11 +56,22 @@ export async function openReceipt(request: Request, expenseId: string, tokenFrom
   const admin = createAdminClient()
   const { data } = await admin
     .from("expenses")
-    .select("project_id, receipt_file_path")
+    .select("project_id, receipt_file_path, verification_status")
     .eq("id", expenseId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Receipt not found" }, { status: 404 })
-  return sendStoredFile(request, "receipts", data.receipt_file_path, data.project_id, tokenFromPath)
+  const fibre = Boolean(await getSessionToken())
+  const clientAllowed = fibre
+    ? false
+    : (await clientSessionOwnsProject(data.project_id)) && data.verification_status === "verified"
+  return sendStoredFile(
+    request,
+    "receipts",
+    data.receipt_file_path,
+    data.project_id,
+    tokenFromPath,
+    clientAllowed,
+  )
 }
 
 export async function openInvoice(request: Request, invoiceId: string, tokenFromPath?: string) {
@@ -69,5 +82,7 @@ export async function openInvoice(request: Request, invoiceId: string, tokenFrom
     .eq("id", invoiceId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-  return sendStoredFile(request, "invoices", data.file_path, data.project_id, tokenFromPath)
+  const fibre = Boolean(await getSessionToken())
+  const clientAllowed = fibre ? false : await clientSessionOwnsProject(data.project_id)
+  return sendStoredFile(request, "invoices", data.file_path, data.project_id, tokenFromPath, clientAllowed)
 }

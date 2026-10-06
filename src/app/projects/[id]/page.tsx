@@ -1,5 +1,6 @@
 import { CategoryChart } from "@/components/category-chart"
 import { CategorySheets } from "@/components/category-sheets"
+import { ExpenseAmountSearchBar, ExpenseSearchProvider } from "@/components/expense-amount-search"
 import { type SheetRow } from "@/components/expense-sheet"
 import { MoneySummary } from "@/components/money-summary"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -34,7 +35,8 @@ export default async function ProjectExpensesPage({
     listClientPayments(id),
   ])
   const admin = createAdminClient()
-  const thumbs = expenses
+  const posted = expenses.filter((row) => row.verification_status === "verified")
+  const thumbs = posted
     .map((row) => row.receipt_thumbnail_path)
     .filter((path): path is string => Boolean(path))
   const signed = thumbs.length
@@ -43,7 +45,7 @@ export default async function ProjectExpensesPage({
   const thumbByPath = new Map(
     (signed.data ?? []).map((item) => [item.path, item.signedUrl]),
   )
-  const rows: SheetRow[] = expenses.map((row) => ({
+  const rows: SheetRow[] = posted.map((row) => ({
     id: row.id,
     date: row.expense_date,
     vendor: row.vendor,
@@ -79,12 +81,23 @@ export default async function ProjectExpensesPage({
       if (b.cents === 0) return -1
       return b.cents - a.cents || a.code - b.code
     })
+  const sheetCategories = totals.map((row) => ({
+    id: row.category_id,
+    code: row.code,
+    name: row.name,
+    budget: row.budget ?? 0,
+  }))
+  const sheetRows = needs
+    ? rows.filter((row) => row.invoiceStatus === "not_invoiced" && row.hasReceipt)
+    : rows
 
   return (
+    <ExpenseSearchProvider categories={sheetCategories} rows={sheetRows}>
     <div>
       <div className="grid gap-4 px-4 pt-4">
         <MoneySummary spentCents={spentCents} receivedCents={receivedCents} />
       </div>
+      <ExpenseAmountSearchBar />
       {needs ? null : (
         <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
           <h2 className="mb-4 font-medium">Expense by category</h2>
@@ -93,16 +106,8 @@ export default async function ProjectExpensesPage({
       )}
       <CategorySheets
         projectId={id}
-        categories={totals.map((row) => ({
-          id: row.category_id,
-          code: row.code,
-          name: row.name,
-        }))}
-        rows={
-          needs
-            ? rows.filter((row) => row.invoiceStatus === "not_invoiced" && row.hasReceipt)
-            : rows
-        }
+        categories={sheetCategories}
+        rows={sheetRows}
         invoiceTracking={project.invoice_tracking}
         mode={needs ? "needs" : "all"}
       />
@@ -120,5 +125,6 @@ export default async function ProjectExpensesPage({
         </div>
       </div>
     </div>
+    </ExpenseSearchProvider>
   )
 }

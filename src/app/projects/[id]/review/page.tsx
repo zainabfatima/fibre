@@ -25,7 +25,7 @@ export default async function ReviewPage({
   const [categories, rows] = await Promise.all([listCategories(true), listExpenseRows(id)])
   const pending = rows.filter((row) => row.verification_status !== "verified")
   const queue = pending.map((row) => row.id)
-  const currentId = expense && rows.some((row) => row.id === expense) ? expense : queue[0]
+  const currentId = expense && queue.includes(expense) ? expense : queue[0]
   const current = rows.find((row) => row.id === currentId)
   if (!current) {
     return (
@@ -36,15 +36,20 @@ export default async function ReviewPage({
     )
   }
   const admin = createAdminClient()
-  const paths = [current.receipt_file_path, current.receipt_thumbnail_path].filter(
-    (path): path is string => Boolean(path),
-  )
   const duplicate = current.duplicate_of
     ? rows.find((row) => row.id === current.duplicate_of)
     : null
-  if (duplicate?.receipt_file_path) paths.push(duplicate.receipt_file_path)
-  const signed = await admin.storage.from("receipts").createSignedUrls(paths, 60 * 30)
+  const paths = [current.receipt_thumbnail_path, duplicate?.receipt_thumbnail_path].filter(
+    (path): path is string => Boolean(path),
+  )
+  const signed = paths.length
+    ? await admin.storage.from("receipts").createSignedUrls(paths, 60 * 30)
+    : { data: [] }
   const byPath = new Map((signed.data ?? []).map((item) => [item.path, item.signedUrl]))
+  const fileType =
+    current.file_type === "pdf" || current.receipt_file_path.toLowerCase().endsWith(".pdf")
+      ? "pdf"
+      : "image"
   const extracted = asRecord(current.ai_extracted)
   const lineItems = Array.isArray(extracted?.line_items)
     ? extracted.line_items.flatMap((item) => {
@@ -91,7 +96,13 @@ export default async function ReviewPage({
       categoryId={current.category_id}
       confidence={current.ai_confidence == null ? null : Number(current.ai_confidence)}
       suggestedIds={current.ai_suggested_category_ids ?? []}
-      imageUrl={byPath.get(current.receipt_file_path) ?? null}
+      fileUrl={`/r/${current.id}`}
+      fileType={fileType}
+      pageCount={current.page_count ?? 1}
+      previewUrl={
+        (current.receipt_thumbnail_path ? byPath.get(current.receipt_thumbnail_path) : null) ??
+        (fileType === "image" ? `/r/${current.id}` : null)
+      }
       notes={typeof extracted?.notes === "string" ? extracted.notes : null}
       splitSuggested={extracted?.split_suggested === true}
       lineItems={lineItems}
@@ -102,9 +113,13 @@ export default async function ReviewPage({
               vendor: duplicate.vendor,
               amount: centsToMoney(moneyToCents(duplicate.amount)),
               date: duplicate.expense_date,
-              imageUrl: duplicate.receipt_file_path
-                ? (byPath.get(duplicate.receipt_file_path) ?? null)
-                : null,
+              imageUrl:
+                (duplicate.receipt_thumbnail_path
+                  ? byPath.get(duplicate.receipt_thumbnail_path)
+                  : null) ??
+                (duplicate.file_type === "pdf" || duplicate.receipt_file_path.toLowerCase().endsWith(".pdf")
+                  ? null
+                  : `/r/${duplicate.id}`),
             }
           : null
       }

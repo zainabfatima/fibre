@@ -91,6 +91,20 @@ export async function saveScannedReceipt(formData: FormData) {
   }
 
   const supabase = await requireAdmin()
+  const categoryRaw = String(formData.get("categoryId") ?? "").trim()
+  let categoryId: number | null = null
+  if (categoryRaw) {
+    const parsed = Number(categoryRaw)
+    if (!Number.isInteger(parsed) || parsed <= 0) return { error: "Pick a valid category" }
+    const { data: category, error: categoryError } = await supabase
+      .from("categories")
+      .select("id")
+      .eq("id", parsed)
+      .maybeSingle()
+    if (categoryError) return { error: categoryError.message }
+    if (!category) return { error: "Pick a valid category" }
+    categoryId = category.id
+  }
   const id = crypto.randomUUID()
   const path = `${projectId}/0/${id}.pdf`
   const uploaded = await supabase.storage.from("receipts").upload(path, Buffer.from(await file.arrayBuffer()), {
@@ -120,6 +134,7 @@ export async function saveScannedReceipt(formData: FormData) {
     page_count: pageCount,
     file_type: "pdf",
     capture_type: captureType,
+    ...(categoryId != null ? { category_id: categoryId } : {}),
   })
   if (error) {
     await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])

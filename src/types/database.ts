@@ -99,6 +99,7 @@ export type Database = {
           sort_order: number
           is_active: boolean
           keywords: string[]
+          default_budget: number | null
         }
         Insert: {
           id?: number
@@ -107,6 +108,7 @@ export type Database = {
           sort_order: number
           is_active?: boolean
           keywords?: string[]
+          default_budget?: Money | null
         }
         Update: {
           id?: number
@@ -115,6 +117,7 @@ export type Database = {
           sort_order?: number
           is_active?: boolean
           keywords?: string[]
+          default_budget?: Money | null
         }
         Relationships: []
       }
@@ -123,16 +126,19 @@ export type Database = {
           project_id: string
           category_id: number
           budget_amount: number
+          budget_override: boolean
         }
         Insert: {
           project_id: string
           category_id: number
           budget_amount: Money
+          budget_override?: boolean
         }
         Update: {
           project_id?: string
           category_id?: number
           budget_amount?: Money
+          budget_override?: boolean
         }
         Relationships: []
       }
@@ -423,6 +429,10 @@ export type Database = {
       }
       recalculate_invoice: {
         Args: { target: string }
+        Returns: undefined
+      }
+      replace_category_default_budgets: {
+        Args: { entries: Json }
         Returns: undefined
       }
     }

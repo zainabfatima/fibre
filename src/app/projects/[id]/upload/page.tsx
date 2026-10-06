@@ -1,4 +1,5 @@
 import { UploadQueue } from "@/components/upload-queue"
+import { listCategories } from "@/lib/queries"
 
 export default async function UploadPage({
   params,
@@ -6,5 +7,8 @@ export default async function UploadPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  return <UploadQueue projectId={id} />
+  const categories = (await listCategories(true))
+    .map((category) => ({ id: category.id, code: category.code, name: category.name }))
+    .sort((a, b) => a.code - b.code)
+  return <UploadQueue projectId={id} categories={categories} />
 }

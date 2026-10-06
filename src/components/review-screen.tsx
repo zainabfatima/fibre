@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { clearDuplicate, deleteExpense, saveSplit, updateExpenseFields } from "@/app/actions/expenses"
+import { ReceiptPages } from "@/components/receipt-pages"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,7 +28,10 @@ export function ReviewScreen({
   categoryId,
   confidence,
   suggestedIds,
-  imageUrl,
+  fileUrl,
+  fileType,
+  pageCount,
+  previewUrl,
   notes,
   splitSuggested,
   lineItems,
@@ -47,7 +51,10 @@ export function ReviewScreen({
   categoryId: number | null
   confidence: number | null
   suggestedIds: number[]
-  imageUrl: string | null
+  fileUrl: string
+  fileType: "image" | "pdf"
+  pageCount: number
+  previewUrl: string | null
   notes: string | null
   splitSuggested: boolean
   lineItems: Line[]
@@ -119,6 +126,11 @@ export function ReviewScreen({
   }
 
   useEffect(() => {
+    setZoom(1)
+    setRotation(0)
+  }, [expenseId])
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement
       const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
@@ -156,9 +168,9 @@ export function ReviewScreen({
   }
 
   return (
-    <div className="grid gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-      <div className="overflow-hidden rounded-xl bg-muted">
-        <div className="flex gap-2 p-2">
+    <div className="grid min-w-0 gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+      <div className="min-w-0 overflow-x-auto rounded-xl bg-muted lg:max-h-[80vh] lg:overflow-y-auto">
+        <div className="flex flex-wrap gap-2 p-2">
           <Button type="button" variant="outline" size="sm" onClick={() => setZoom((value) => value + 0.25)}>
             Zoom in
           </Button>
@@ -169,20 +181,14 @@ export function ReviewScreen({
             Rotate
           </Button>
         </div>
-        <div className="max-h-[42vh] overflow-auto p-3 sm:p-4 lg:max-h-[70vh]">
-          {imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imageUrl}
-              alt="Receipt"
-              style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
-              className="mx-auto max-w-full origin-center"
-            />
-          ) : (
-            <a href={`/r/${expenseId}`} target="_blank" rel="noreferrer" className="underline">
-              Open receipt file
-            </a>
-          )}
+        <div className="p-3 sm:p-4">
+          <ReceiptPages
+            src={fileUrl}
+            fileType={fileType}
+            pageCount={pageCount}
+            zoom={zoom}
+            rotation={rotation}
+          />
         </div>
       </div>
 
@@ -198,8 +204,14 @@ export function ReviewScreen({
               {duplicate.vendor} · {duplicate.date} · {formatMoney(duplicate.amount)}
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              {imageUrl ? <img src={imageUrl} alt="" className="max-h-32 w-full object-contain" /> : <span>This receipt</span>}
+              {previewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={previewUrl} alt="" className="max-h-32 w-full object-contain" />
+              ) : (
+                <span>This receipt</span>
+              )}
               {duplicate.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={duplicate.imageUrl} alt="" className="max-h-32 w-full object-contain" />
               ) : (
                 <span>Other receipt</span>

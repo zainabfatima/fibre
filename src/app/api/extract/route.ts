@@ -10,10 +10,21 @@ export async function POST(request: Request) {
   if (!supabase) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 })
   }
-  const body = (await request.json()) as { expenseId?: string; invoiceId?: string }
+  const body = (await request.json()) as {
+    expenseId?: string
+    invoiceId?: string
+    categoryId?: number | null
+  }
   try {
     if (body.expenseId) {
-      const result = await extractExpense(body.expenseId)
+      const categoryId =
+        typeof body.categoryId === "number" && Number.isInteger(body.categoryId)
+          ? body.categoryId
+          : null
+      const result = await extractExpense(
+        body.expenseId,
+        categoryId == null ? undefined : { categoryId },
+      )
       return NextResponse.json(result)
     }
     if (body.invoiceId) {

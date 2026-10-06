@@ -21,7 +21,10 @@ function mediaType(path: string, bytes: Buffer) {
   return "image/jpeg" as const
 }
 
-export async function extractExpense(expenseId: string) {
+export async function extractExpense(
+  expenseId: string,
+  options?: { categoryId?: number | null },
+) {
   const supabase = createAdminClient()
   const { data: expense, error } = await supabase
     .from("expenses")
@@ -112,6 +115,12 @@ export async function extractExpense(expenseId: string) {
       .map((item) => byCode.get(item.code))
       .filter((id): id is number => typeof id === "number")
       .slice(0, 3)
+    const requested = options?.categoryId
+    const manualRequested =
+      typeof requested === "number" && Number.isInteger(requested) && requested > 0
+    const manualCategoryId = manualRequested
+      ? (categories.find((category) => category.id === requested)?.id ?? expense.category_id)
+      : null
     const amount =
       extracted.total_amount_paid == null
         ? null
@@ -130,7 +139,7 @@ export async function extractExpense(expenseId: string) {
           .filter(Boolean)
           .slice(0, 3)
           .join("; ") || null,
-        category_id: suggestedIds[0] ?? null,
+        category_id: manualRequested ? manualCategoryId : (suggestedIds[0] ?? null),
         ai_extracted: JSON.parse(JSON.stringify(extracted)),
         ai_suggested_category_ids: suggestedIds,
         ai_confidence: extracted.confidence,

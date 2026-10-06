@@ -66,6 +66,14 @@ export function ReceiptScanner({
     // The chosen files are scanned once when the scanner opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  useEffect(() => {
+    if (!editingId && !previewSrc) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [editingId, previewSrc])
   const kind = captureType === "multi_page" ? "document" : "receipt"
 
   async function addBlob(blob: Blob, hashBlob = blob) {
@@ -174,35 +182,44 @@ export function ReceiptScanner({
     }
   }
 
-  async function confirm(chosen?: CaptureType) {
+  async function confirm(chosen?: CaptureType, direct = false) {
     if (pages.length === 0) return
     setBusy(true)
     try {
-      const missing = pages.filter((page) => !page.processed)
-      for (const page of missing) {
-        const scanned = await scanPage(page.source, page.corners, "bw", kind)
-        page.processed = scanned.image
-        page.checks = scanned.checks
-        page.filter = "bw"
+      const group: Draft[] = []
+      for (const page of pages) {
+        const current = editing && page.id === editing.id ? editing : page
+        const stale = Boolean(editing && page.id === editing.id)
+        if (current.processed && !stale) {
+          group.push(current)
+          continue
+        }
+        const scanned = await scanPage(current.source, current.corners, "bw", kind)
+        group.push({
+          ...current,
+          filter: "bw",
+          processed: scanned.image,
+          checks: scanned.checks,
+          previewUrl: previewUrl(scanned.image),
+        })
       }
-      const warnings = pages.flatMap((page) => checkLabels(page.checks))
-      if (warnings.length && !note) {
+      setPages(group)
+      const warnings = group.flatMap((page) => checkLabels(page.checks))
+      if (warnings.length && !note && !direct) {
         setNote(warnings[0])
-        setBusy(false)
         return
       }
-      if (!previewSrc) {
-        const first = pages[0].processed
+      if (!direct && !previewSrc) {
+        const first = group[0]?.processed
         if (first) setPreviewSrc(previewUrl(first))
-        setBusy(false)
         return
       }
-      const type = chosen ?? (pages.length === 1 ? "single" : captureType)
-      if (type === "single" && pages.length > 1) {
-        await onComplete(await separateResults())
+      const type = chosen ?? (group.length === 1 ? "single" : captureType)
+      if (type === "single" && group.length > 1) {
+        await onComplete(await separateResults(group))
         return
       }
-      await onComplete([await buildResult(pages, type)])
+      await onComplete([await buildResult(group, type)])
     } catch (cause) {
       setNote(cause instanceof Error ? cause.message : "The scan could not be saved")
     } finally {
@@ -210,16 +227,16 @@ export function ReceiptScanner({
     }
   }
 
-  async function separateResults() {
+  async function separateResults(group: Draft[]) {
     const results: ScanResult[] = []
-    for (const page of pages) {
+    for (const page of group) {
       if (!page.processed) continue
-      results.push(await buildResult([{ ...page }], "single"))
+      results.push(await buildResult([page], "single"))
     }
     return results
   }
 
-  const warning = editing ? checkLabels(editing.checks)[0] : note
+  const warning = (editing ? checkLabels(editing.checks)[0] : null) || note
 
   return (
     <div className="grid gap-4">
@@ -250,66 +267,92 @@ export function ReceiptScanner({
         </div>
       ) : null}
       {editing ? (
-        <div className="grid gap-3">
-          <CornerAdjuster
-            image={editing.source}
-            corners={editing.corners}
-            onChange={(corners) => {
-              setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
-            }}
-          />
-          <div className="flex flex-wrap gap-2">
+        <div className="fixed inset-0 z-40 flex h-dvh flex-col bg-background">
+          <div className="shrink-0 border-b border-border bg-background px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="font-medium">Scan receipt</h2>
+              <button type="button" onClick={onCancel} className="min-h-11 px-3 text-sm underline">
+                Cancel
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="min-h-11 rounded-lg border border-input px-3 text-sm"
+                onClick={() => {
+                  const corners = detectCorners(editing.source)
+                  setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
+                }}
+              >
+                Auto
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded-lg border border-input px-3 text-sm"
+                onClick={() => {
+                  const corners = [
+                    { x: 0, y: 0 },
+                    { x: editing.source.width - 1, y: 0 },
+                    { x: editing.source.width - 1, y: editing.source.height - 1 },
+                    { x: 0, y: editing.source.height - 1 },
+                  ]
+                  setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
+                }}
+              >
+                Full image
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded-lg border border-input px-3 text-sm"
+                onClick={() => {
+                  const source = rotate(editing.source, 1)
+                  const corners = detectCorners(source)
+                  setPages((current) =>
+                    current.map((page) => (page.id === editing.id ? { ...page, source, corners, processed: null } : page)),
+                  )
+                }}
+              >
+                Rotate
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded-lg border border-input px-3 text-sm"
+                onClick={() => {
+                  void refreshPreviews(editing)
+                  setEditingId(null)
+                }}
+              >
+                Use this page
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="col-span-2 min-h-11 rounded-lg border border-input px-3 text-sm font-medium disabled:opacity-60"
+                onClick={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
+              >
+                {busy ? "Saving…" : "Confirm"}
+              </button>
+            </div>
             <button
               type="button"
-              className="min-h-11 rounded-lg border border-input px-3 text-sm"
-              onClick={() => {
-                const corners = detectCorners(editing.source)
-                setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
-              }}
+              disabled={busy}
+              className="mt-2 min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
+              onClick={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
             >
-              Auto
+              {busy ? "Saving…" : "Done"}
             </button>
-            <button
-              type="button"
-              className="min-h-11 rounded-lg border border-input px-3 text-sm"
-              onClick={() => {
-                const corners = [
-                  { x: 0, y: 0 },
-                  { x: editing.source.width - 1, y: 0 },
-                  { x: editing.source.width - 1, y: editing.source.height - 1 },
-                  { x: 0, y: editing.source.height - 1 },
-                ]
-                setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
-              }}
-            >
-              Full image
-            </button>
-            <button
-              type="button"
-              className="min-h-11 rounded-lg border border-input px-3 text-sm"
-              onClick={() => {
-                const source = rotate(editing.source, 1)
-                const corners = detectCorners(source)
-                setPages((current) =>
-                  current.map((page) => (page.id === editing.id ? { ...page, source, corners, processed: null } : page)),
-                )
-              }}
-            >
-              Rotate
-            </button>
+            {warning ? <p className="mt-1 text-sm text-red-700">{warning}</p> : null}
           </div>
-          <p className="text-sm text-muted-foreground">Saved as a black-and-white PDF.</p>
-          {warning ? <p className="text-sm text-red-700">{warning}</p> : null}
-          <button
-            type="button"
-            className="min-h-11 rounded-lg bg-primary text-sm font-medium text-primary-foreground"
-            onClick={() => {
-              void refreshPreviews(editing)
-              setEditingId(null)
-            }}
-          >
-            Use this page
-          </button>
+          <div className="min-h-0 flex-1 overflow-auto px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <p className="mb-2 text-sm text-muted-foreground">Saved as a black-and-white PDF.</p>
+            <CornerAdjuster
+              image={editing.source}
+              corners={editing.corners}
+              onChange={(corners) => {
+                setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
+              }}
+            />
+          </div>
         </div>
       ) : null}
       {pages.length > 0 ? (
@@ -347,16 +390,23 @@ export function ReceiptScanner({
             </label>
           </div>
           {pages.length > 0 ? (
-            <div className="grid grid-cols-3 gap-2">
-              <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => void confirm(pages.length === 1 ? "single" : captureType)}>
-                Done
+            <div className="sticky bottom-0 z-20 grid gap-2 border-t border-border bg-background/95 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+              <button
+                type="button"
+                disabled={busy}
+                className="min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
+                onClick={() => void confirm(pages.length === 1 ? "single" : captureType)}
+              >
+                {busy ? "Saving…" : "Done"}
               </button>
-              <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => { setCaptureType("long"); setCamera(true) }}>
-                Add section
-              </button>
-              <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => { setCaptureType("multi_page"); setCamera(true) }}>
-                Add page
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => { setCaptureType("long"); setCamera(true) }}>
+                  Add section
+                </button>
+                <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => { setCaptureType("multi_page"); setCamera(true) }}>
+                  Add page
+                </button>
+              </div>
             </div>
           ) : null}
         </div>
@@ -376,7 +426,7 @@ export function ReceiptScanner({
             setPreviewSrc(null)
             setEditingId(pages[0]?.id ?? null)
           }}
-          onConfirm={() => void confirm()}
+          onConfirm={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
         />
       ) : null}
       {initialFiles.length > 0 && pages.length === 0 && !status ? (
