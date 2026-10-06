@@ -13,7 +13,7 @@ export function StatusBadge({
       ? "bg-red-100 text-red-800"
       : status === "paid" || status === "verified"
         ? "bg-emerald-100 text-emerald-800"
-        : status === "partially_paid" || status === "pending"
+        : status === "partially_paid" || status === "partial" || status === "pending" || status === "unpaid"
           ? "bg-amber-100 text-amber-900"
           : "bg-muted text-muted-foreground"
   return (

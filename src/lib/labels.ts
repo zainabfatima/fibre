@@ -1,3 +1,13 @@
+/** Roll up the paid / unpaid / partial marks the user set on each linked expense. */
+export function deriveInvoiceBillingStatus(statuses: string[]) {
+  if (statuses.length === 0) return "unpaid"
+  const paid = statuses.filter((status) => status === "paid").length
+  const anyPartial = statuses.some((status) => status === "partial")
+  if (paid === statuses.length) return "paid"
+  if (anyPartial || (paid > 0 && paid < statuses.length)) return "partial"
+  return "unpaid"
+}
+
 export function invoiceStatusLabel(status: string | null | undefined) {
   switch (status) {
     case "not_invoiced":

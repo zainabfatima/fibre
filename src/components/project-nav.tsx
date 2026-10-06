@@ -6,9 +6,11 @@ import { usePathname, useSearchParams } from "next/navigation"
 export function ProjectNav({
   projectId,
   invoiceTracking,
+  pendingReviews = 0,
 }: {
   projectId: string
   invoiceTracking: boolean
+  pendingReviews?: number
 }) {
   const pathname = usePathname()
   const search = useSearchParams()
@@ -19,7 +21,7 @@ export function ProjectNav({
       ? [{ key: "needs", href: "?tab=needs", label: "Needs invoicing" }]
       : []),
     { key: "upload", href: "/upload", label: "Upload" },
-    { key: "review", href: "/review", label: "Review" },
+    { key: "review", href: "/review", label: pendingReviews > 0 ? `Review (${pendingReviews})` : "Review" },
     { key: "payments", href: "/payments", label: "Money received" },
     ...(invoiceTracking ? [{ key: "invoices", href: "/invoices", label: "Invoices" }] : []),
     { key: "settings", href: "/settings", label: "Settings" },

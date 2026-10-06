@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 
+import { deriveInvoiceBillingStatus } from "@/lib/labels"
 import { requireAdmin } from "@/lib/db"
 import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
 import type { Database } from "@/types/database"
@@ -30,6 +31,144 @@ export async function lookupReceiptHash(projectId: string, hash: string) {
       date: data.created_at.slice(0, 10),
     },
   }
+}
+
+export async function lookupPageHashes(projectId: string, hashes: string[]) {
+  const unique = [...new Set(hashes.map((hash) => hash.toLowerCase()).filter((hash) => /^[0-9a-f]{64}$/.test(hash)))]
+  if (unique.length === 0) return { duplicate: null }
+  const supabase = await requireAdmin()
+  const { data, error } = await supabase
+    .from("receipt_page_hashes")
+    .select("hash, page_number, expense_id")
+    .eq("project_id", projectId)
+    .in("hash", unique)
+    .limit(1)
+  if (error) return { error: error.message }
+  const match = data?.[0]
+  if (!match) {
+    for (const [index, hash] of unique.entries()) {
+      const existing = await lookupReceiptHash(projectId, hash)
+      if ("error" in existing && existing.error) return { error: existing.error }
+      if (existing.duplicate) return { duplicate: { ...existing.duplicate, page: index + 1 } }
+    }
+    return { duplicate: null }
+  }
+  const { data: expense } = await supabase
+    .from("expenses")
+    .select("id, expense_date, created_at")
+    .eq("id", match.expense_id)
+    .maybeSingle()
+  return {
+    duplicate: {
+      id: expense?.id ?? match.expense_id,
+      date: (expense?.expense_date || expense?.created_at || "").slice(0, 10),
+      page: match.page_number,
+    },
+  }
+}
+
+export async function saveScannedReceipt(formData: FormData) {
+  const projectId = String(formData.get("projectId") ?? "")
+  const hashes = String(formData.get("hashes") ?? "")
+    .split(",")
+    .map((hash) => hash.toLowerCase())
+    .filter((hash) => /^[0-9a-f]{64}$/.test(hash))
+  const file = formData.get("file")
+  const thumb = formData.get("thumb")
+  const captureRaw = String(formData.get("captureType") ?? "single")
+  const captureType = captureRaw === "long" || captureRaw === "multi_page" ? captureRaw : "single"
+  const pageCount = Math.max(1, Math.min(20, Number(formData.get("pageCount") ?? (hashes.length || 1))))
+  if (!(file instanceof File) || file.type !== "application/pdf" || !projectId || hashes.length === 0) {
+    return { error: "The scanned receipt must be a PDF" }
+  }
+  const existing = await lookupPageHashes(projectId, hashes)
+  if ("error" in existing && existing.error) return { error: existing.error }
+  if (existing.duplicate) {
+    return {
+      error: `Duplicate — page ${existing.duplicate.page} matches a receipt from ${existing.duplicate.date || "an earlier upload"}`,
+      existingId: existing.duplicate.id,
+    }
+  }
+
+  const supabase = await requireAdmin()
+  const id = crypto.randomUUID()
+  const path = `${projectId}/0/${id}.pdf`
+  const uploaded = await supabase.storage.from("receipts").upload(path, Buffer.from(await file.arrayBuffer()), {
+    contentType: "application/pdf",
+    upsert: false,
+  })
+  if (uploaded.error) return { error: uploaded.error.message }
+
+  let thumbPath: string | null = null
+  if (thumb instanceof File && thumb.size > 0) {
+    thumbPath = `${projectId}/thumbs/${id}.webp`
+    const thumbUpload = await supabase.storage.from("receipts").upload(thumbPath, Buffer.from(await thumb.arrayBuffer()), {
+      contentType: thumb.type || "image/webp",
+      upsert: false,
+    })
+    if (thumbUpload.error) thumbPath = null
+  }
+
+  const { error } = await supabase.from("expenses").insert({
+    id,
+    project_id: projectId,
+    amount: "0.00",
+    receipt_file_path: path,
+    receipt_file_hash: hashes[0],
+    receipt_thumbnail_path: thumbPath,
+    verification_status: "needs_review",
+    page_count: pageCount,
+    file_type: "pdf",
+    capture_type: captureType,
+  })
+  if (error) {
+    await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
+    return { error: error.message }
+  }
+  const { error: hashError } = await supabase.from("receipt_page_hashes").insert(
+    hashes.map((hash, index) => ({
+      project_id: projectId,
+      expense_id: id,
+      page_number: index + 1,
+      hash,
+    })),
+  )
+  if (hashError) {
+    await supabase.from("expenses").delete().eq("id", id)
+    await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
+    return { error: hashError.message }
+  }
+
+  refresh(projectId)
+  return { id }
+}
+
+export async function replaceScannedFile(formData: FormData) {
+  const projectId = String(formData.get("projectId") ?? "")
+  const expenseId = String(formData.get("expenseId") ?? "")
+  const file = formData.get("file")
+  if (!(file instanceof File) || !projectId || !expenseId) return { error: "The replacement scan is missing" }
+  const supabase = await requireAdmin()
+  const { data } = await supabase
+    .from("expenses")
+    .select("receipt_file_path")
+    .eq("id", expenseId)
+    .eq("project_id", projectId)
+    .maybeSingle()
+  if (!data) return { error: "Receipt not found" }
+  const extension = file.type === "image/png" ? "png" : file.type === "application/pdf" ? "pdf" : file.type === "image/webp" ? "webp" : "jpg"
+  const path = data.receipt_file_path.replace(/\.[^.]+$/, `.${extension}`)
+  const uploaded = await supabase.storage.from("receipts").upload(path, Buffer.from(await file.arrayBuffer()), {
+    contentType: file.type || "image/jpeg",
+    upsert: true,
+  })
+  if (uploaded.error) return { error: uploaded.error.message }
+  if (path !== data.receipt_file_path) {
+    await supabase.storage.from("receipts").remove([data.receipt_file_path])
+    await supabase.from("expenses").update({ receipt_file_path: path, file_type: extension === "pdf" ? "pdf" : "image" }).eq("id", expenseId)
+  }
+  refresh(projectId)
+  return { id: expenseId }
 }
 
 export async function uploadReceipt(formData: FormData) {
@@ -298,6 +437,23 @@ export async function setExpenseBillingStatus(input: {
     .eq("id", input.expenseId)
     .eq("project_id", input.projectId)
   if (error) return { error: error.message }
+  const { data: expense } = await supabase
+    .from("expenses")
+    .select("invoice_id")
+    .eq("id", input.expenseId)
+    .maybeSingle()
+  if (expense?.invoice_id) {
+    const { data: linked } = await supabase
+      .from("expenses")
+      .select("billing_status")
+      .eq("invoice_id", expense.invoice_id)
+    const rollup = deriveInvoiceBillingStatus((linked ?? []).map((row) => row.billing_status))
+    const status = rollup === "paid" ? "paid" : rollup === "partial" ? "partially_paid" : "pending"
+    const { data: invoice } = await supabase.from("invoices").select("status").eq("id", expense.invoice_id).maybeSingle()
+    if (invoice && invoice.status !== "void") {
+      await supabase.from("invoices").update({ status }).eq("id", expense.invoice_id)
+    }
+  }
   refresh(input.projectId)
   return { error: null }
 }

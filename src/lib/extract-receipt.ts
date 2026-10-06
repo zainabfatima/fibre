@@ -52,30 +52,47 @@ export async function extractExpense(expenseId: string) {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
   const system = extractionSystemPrompt(categoryPromptList(categories))
 
+  const instruction =
+    (expense.page_count ?? 1) > 1 || type === "application/pdf"
+      ? "These pages belong to ONE receipt or invoice. Use the FINAL total from the page that says Total, Amount Due, or Balance Due, usually the last page, not a page subtotal. Combine line items from all pages."
+      : "Extract this receipt."
+  const embedded = type === "application/pdf" ? extractEmbeddedImages(bytes) : []
   const content =
-    type === "application/pdf"
+    embedded.length > 0
       ? [
-          {
-            type: "document" as const,
-            source: {
-              type: "base64" as const,
-              media_type: "application/pdf" as const,
-              data: bytes.toString("base64"),
-            },
-          },
-          { type: "text" as const, text: "Extract this receipt." },
-        ]
-      : [
-          {
+          ...embedded.slice(0, 20).map((image) => ({
             type: "image" as const,
             source: {
               type: "base64" as const,
-              media_type: type,
-              data: bytes.toString("base64"),
+              media_type: image.mediaType,
+              data: image.data,
             },
-          },
-          { type: "text" as const, text: "Extract this receipt." },
+          })),
+          { type: "text" as const, text: instruction },
         ]
+      : type === "application/pdf"
+        ? [
+            {
+              type: "document" as const,
+              source: {
+                type: "base64" as const,
+                media_type: "application/pdf" as const,
+                data: bytes.toString("base64"),
+              },
+            },
+            { type: "text" as const, text: instruction },
+          ]
+        : [
+            {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: type,
+                data: bytes.toString("base64"),
+              },
+            },
+            { type: "text" as const, text: instruction },
+          ]
 
   let rawText = ""
   try {
@@ -123,7 +140,7 @@ export async function extractExpense(expenseId: string) {
     if (updateError) throw new Error(updateError.message)
 
     await flagSoftDuplicate(expense.project_id, expenseId)
-    return { ok: true as const }
+    return { ok: true as const, confidence: extracted.confidence }
   } catch (cause) {
     await supabase
       .from("expenses")
@@ -254,4 +271,32 @@ export async function readInvoiceDocumentTotal(invoiceId: string) {
     .eq("id", invoiceId)
   if (error) throw new Error(error.message)
   return total
+}
+
+function extractEmbeddedImages(bytes: Buffer) {
+  const images: Array<{ mediaType: "image/jpeg" | "image/png"; data: string }> = []
+  let index = 0
+  while (index < bytes.length - 3 && images.length < 20) {
+    if (bytes[index] === 0xff && bytes[index + 1] === 0xd8 && bytes[index + 2] === 0xff) {
+      const end = bytes.indexOf(Buffer.from([0xff, 0xd9]), index + 2)
+      if (end === -1) break
+      images.push({ mediaType: "image/jpeg", data: bytes.subarray(index, end + 2).toString("base64") })
+      index = end + 2
+      continue
+    }
+    if (
+      bytes[index] === 0x89 &&
+      bytes[index + 1] === 0x50 &&
+      bytes[index + 2] === 0x4e &&
+      bytes[index + 3] === 0x47
+    ) {
+      const end = bytes.indexOf(Buffer.from("IEND"), index + 8)
+      if (end === -1) break
+      images.push({ mediaType: "image/png", data: bytes.subarray(index, end + 8).toString("base64") })
+      index = end + 8
+      continue
+    }
+    index += 1
+  }
+  return images
 }

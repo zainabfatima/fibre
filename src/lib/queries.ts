@@ -43,6 +43,17 @@ export async function listCategories(activeOnly = false) {
   return data ?? []
 }
 
+export async function countPendingReviews(projectId: string) {
+  const supabase = await requireAdmin()
+  const { count, error } = await supabase
+    .from("expenses")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", projectId)
+    .neq("verification_status", "verified")
+  if (error) return 0
+  return count ?? 0
+}
+
 export async function getProject(id: string) {
   const supabase = await requireAdmin()
   const { data, error } = await supabase

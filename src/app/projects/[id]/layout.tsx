@@ -3,7 +3,7 @@ import { notFound } from "next/navigation"
 import { AppHeader } from "@/components/app-header"
 import { LiveRefresh } from "@/components/live-refresh"
 import { ProjectNav } from "@/components/project-nav"
-import { getProject } from "@/lib/queries"
+import { countPendingReviews, getProject } from "@/lib/queries"
 
 export default async function ProjectLayout({
   children,
@@ -13,7 +13,7 @@ export default async function ProjectLayout({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const project = await getProject(id)
+  const [project, pendingReviews] = await Promise.all([getProject(id), countPendingReviews(id)])
   if (!project) notFound()
 
   return (
@@ -30,7 +30,11 @@ export default async function ProjectLayout({
           </p>
         </div>
       </div>
-      <ProjectNav projectId={id} invoiceTracking={project.invoice_tracking} />
+      <ProjectNav
+        projectId={id}
+        invoiceTracking={project.invoice_tracking}
+        pendingReviews={pendingReviews}
+      />
       {children}
     </>
   )

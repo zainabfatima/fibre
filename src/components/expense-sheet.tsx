@@ -40,6 +40,8 @@ export type SheetRow = {
   invoiceStatus: string
   billingStatus: string
   verificationStatus: string
+  hasReceipt?: boolean
+  pageCount?: number
 }
 
 type CategoryOption = { id: number; code: number; name: string }

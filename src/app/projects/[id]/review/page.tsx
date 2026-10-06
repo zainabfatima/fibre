@@ -23,16 +23,16 @@ export default async function ReviewPage({
   const { id } = await params
   const { expense } = await searchParams
   const [categories, rows] = await Promise.all([listCategories(true), listExpenseRows(id)])
-  const queue = rows
-    .filter((row) => row.verification_status !== "verified")
-    .map((row) => row.id)
+  const pending = rows.filter((row) => row.verification_status !== "verified")
+  const queue = pending.map((row) => row.id)
   const currentId = expense && rows.some((row) => row.id === expense) ? expense : queue[0]
   const current = rows.find((row) => row.id === currentId)
   if (!current) {
     return (
-      <p className="px-4 py-8 text-sm text-muted-foreground">
-        Nothing is waiting for review.
-      </p>
+      <div className="px-4 py-6">
+        <p className="text-2xl font-semibold tabular-nums">0</p>
+        <p className="text-sm text-muted-foreground">pending reviews</p>
+      </div>
     )
   }
   const admin = createAdminClient()
@@ -71,6 +71,13 @@ export default async function ReviewPage({
   if (!current.id) notFound()
 
   return (
+    <div>
+      <div className="px-4 pt-4">
+        <p className="text-2xl font-semibold tabular-nums">{pending.length}</p>
+        <p className="text-sm text-muted-foreground">
+          pending {pending.length === 1 ? "review" : "reviews"}
+        </p>
+      </div>
     <ReviewScreen
       projectId={id}
       expenseId={current.id}
@@ -113,5 +120,6 @@ export default async function ReviewPage({
         name: category.name,
       }))}
     />
+    </div>
   )
 }

@@ -197,7 +197,10 @@ function CategoryBlock({
                 </button>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="font-medium leading-snug break-words">{row.vendor || "Receipt"}</p>
+                    <p className="font-medium leading-snug break-words">
+                      {row.vendor || "Receipt"}
+                      {row.pageCount && row.pageCount > 1 ? ` · ${row.pageCount} pages` : ""}
+                    </p>
                     <p className="shrink-0 text-base font-semibold tabular-nums">{formatMoney(row.amount)}</p>
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>

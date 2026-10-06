@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { deriveInvoiceBillingStatus } from "@/lib/labels"
 import { formatMoney } from "@/lib/money"
 import { getProject, listExpenseRows, listInvoices } from "@/lib/queries"
 import { StatusBadge } from "@/components/status-badge"
@@ -25,9 +26,13 @@ export default async function InvoicesPage({
   }
   const [invoices, expenses] = await Promise.all([listInvoices(id), listExpenseRows(id)])
   const counts = new Map<string, number>()
+  const billing = new Map<string, string[]>()
   for (const expense of expenses) {
     if (!expense.invoice_id) continue
     counts.set(expense.invoice_id, (counts.get(expense.invoice_id) ?? 0) + 1)
+    const marks = billing.get(expense.invoice_id) ?? []
+    marks.push(expense.billing_status)
+    billing.set(expense.invoice_id, marks)
   }
 
   return (
@@ -46,7 +51,7 @@ export default async function InvoicesPage({
               </Link>
               <p className="text-muted-foreground">{invoice.invoice_date}</p>
               <p className="tabular-nums">{formatMoney(invoice.subtotal)}</p>
-              <StatusBadge kind="invoice" status={invoice.status} />
+              <StatusBadge kind="invoice" status={deriveInvoiceBillingStatus(billing.get(invoice.id) ?? [])} />
               {invoice.file_path ? (
                 <a href={`/i/${invoice.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline">
                   View file
@@ -79,7 +84,10 @@ export default async function InvoicesPage({
                     <td className="px-3 py-2">{counts.get(invoice.id) ?? 0}</td>
                     <td className="px-3 py-2 tabular-nums">{formatMoney(invoice.subtotal)}</td>
                     <td className="px-3 py-2">
-                      <StatusBadge kind="invoice" status={invoice.status} />
+                      <StatusBadge
+                        kind="invoice"
+                        status={deriveInvoiceBillingStatus(billing.get(invoice.id) ?? [])}
+                      />
                     </td>
                     <td className="px-3 py-2 tabular-nums">{formatMoney(invoice.amount_paid)}</td>
                     <td className="px-3 py-2">

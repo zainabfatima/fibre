@@ -61,24 +61,36 @@ export default async function ProjectExpensesPage({
     invoiceStatus: row.invoice_status ?? "not_invoiced",
     billingStatus: row.billing_status,
     verificationStatus: row.verification_status,
+    hasReceipt: Boolean(row.receipt_file_path),
+    pageCount: row.page_count,
   }))
   const spentCents = moneyToCents(summary?.total_spent ?? 0)
   const receivedCents = sumCents(payments.map((payment) => payment.amount))
-  const chart = totals.map((row) => ({
-    label: formatCategory(row.code, row.name),
-    name: formatCategory(row.code, row.name),
-    cents: moneyToCents(row.total_spent),
-  }))
+  const chart = totals
+    .map((row) => ({
+      label: formatCategory(row.code, row.name),
+      name: formatCategory(row.code, row.name),
+      cents: moneyToCents(row.total_spent),
+      code: row.code,
+    }))
+    .sort((a, b) => {
+      if (a.cents === 0 && b.cents === 0) return a.code - b.code
+      if (a.cents === 0) return 1
+      if (b.cents === 0) return -1
+      return b.cents - a.cents || a.code - b.code
+    })
 
   return (
     <div>
       <div className="grid gap-4 px-4 pt-4">
         <MoneySummary spentCents={spentCents} receivedCents={receivedCents} />
       </div>
-      <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
-        <h2 className="mb-4 font-medium">Expense by category</h2>
-        <CategoryChart rows={chart} />
-      </section>
+      {needs ? null : (
+        <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
+          <h2 className="mb-4 font-medium">Expense by category</h2>
+          <CategoryChart rows={chart} />
+        </section>
+      )}
       <CategorySheets
         projectId={id}
         categories={totals.map((row) => ({
@@ -86,7 +98,11 @@ export default async function ProjectExpensesPage({
           code: row.code,
           name: row.name,
         }))}
-        rows={needs ? rows.filter((row) => row.invoiceStatus === "not_invoiced") : rows}
+        rows={
+          needs
+            ? rows.filter((row) => row.invoiceStatus === "not_invoiced" && row.hasReceipt)
+            : rows
+        }
         invoiceTracking={project.invoice_tracking}
         mode={needs ? "needs" : "all"}
       />

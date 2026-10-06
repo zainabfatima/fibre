@@ -215,6 +215,9 @@ export type Database = {
           updated_at: string
           created_by: string | null
           billing_status: string
+          page_count: number
+          file_type: string
+          capture_type: string
         }
         Insert: {
           id?: string
@@ -240,6 +243,9 @@ export type Database = {
           updated_at?: string
           created_by?: string | null
           billing_status?: string
+          page_count?: number
+          file_type?: string
+          capture_type?: string
         }
         Update: {
           id?: string
@@ -265,6 +271,39 @@ export type Database = {
           updated_at?: string
           created_by?: string | null
           billing_status?: string
+          page_count?: number
+          file_type?: string
+          capture_type?: string
+        }
+        Relationships: []
+      }
+      app_settings: {
+        Row: { key: string; value: string }
+        Insert: { key: string; value: string }
+        Update: { key?: string; value?: string }
+        Relationships: []
+      }
+      receipt_page_hashes: {
+        Row: {
+          id: string
+          project_id: string
+          expense_id: string
+          page_number: number
+          hash: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          expense_id: string
+          page_number: number
+          hash: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          expense_id?: string
+          page_number?: number
+          hash?: string
         }
         Relationships: []
       }
@@ -334,6 +373,9 @@ export type Database = {
           updated_at: string
           created_by: string | null
           billing_status: string
+          page_count: number
+          file_type: string
+          capture_type: string
         }
         Relationships: []
       }
