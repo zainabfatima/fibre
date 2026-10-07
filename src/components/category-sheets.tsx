@@ -10,9 +10,9 @@ import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { useExpenseSearch } from "@/components/expense-amount-search"
 import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
-import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
+import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, expenseAmountInputProps, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, sumCents, amountOverBudget } from "@/lib/money"
+import { centsToMoney, expenseAmountInputProps, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, returnAmountClass, sumCents, amountOverBudget } from "@/lib/money"
 import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
@@ -104,12 +104,11 @@ export function CategorySheets({
     }
   }
 
-  async function correctReturn(row: SheetRow, amount: string) {
-    const cents = parseMoneyInput(amount)
-    if (cents == null) return
-    const positive = centsToMoney(Math.abs(cents))
-    const saved = await persistAmount(row, positive, "Saved as a charge")
-    if (saved) setReturnPrompt(null)
+  function declineReturn(row: SheetRow, focus: boolean) {
+    setReturnPrompt(null)
+    if (!focus) return
+    toast.message("The minus sign stays. Edit the amount if this is a regular charge.")
+    focusAmountField(row.id)
   }
 
   async function saveInvoice(row: SheetRow, number: string) {
@@ -173,8 +172,8 @@ export function CategorySheets({
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
-          onConfirmReturn={(row) => void confirmStoredReturn(row)}
-          onCorrectReturn={(row) => void correctReturn(row, row.amount)}
+          onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
+          onCorrectReturn={(row) => declineReturn(row, true)}
           amountReset={amountReset}
           allRows={rows}
           readOnly={readOnly}
@@ -198,8 +197,8 @@ export function CategorySheets({
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
-          onConfirmReturn={(row) => void confirmStoredReturn(row)}
-          onCorrectReturn={(row) => void correctReturn(row, row.amount)}
+          onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
+          onCorrectReturn={(row) => declineReturn(row, true)}
           amountReset={amountReset}
           allRows={rows}
           readOnly={readOnly}
@@ -214,8 +213,8 @@ export function CategorySheets({
             ) : (
               <p>Open the file to view this receipt.</p>
             )}
-            <div className="mt-3 flex gap-2">
-              <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium">
                 Open full size
               </a>
               <button type="button" onClick={() => setPreview(null)} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-4 text-sm">
@@ -229,11 +228,8 @@ export function CategorySheets({
         <ReturnConfirmDialog
           amount={returnPrompt.amount}
           onConfirm={() => void confirmStoredReturn(returnPrompt.row, returnPrompt.amount)}
-          onCorrect={() => void correctReturn(returnPrompt.row, returnPrompt.amount)}
-          onDismiss={() => {
-            setReturnPrompt(null)
-            setAmountReset((current) => current + 1)
-          }}
+          onCorrect={() => declineReturn(returnPrompt.row, true)}
+          onDismiss={() => declineReturn(returnPrompt.row, false)}
         />
       ) : null}
     </div>
@@ -255,22 +251,33 @@ function AmountInput({
   readOnly: boolean
   resetKey: number
 }) {
+  const token = `${row.amount}:${resetKey}`
+  const [seen, setSeen] = useState(token)
+  const [draft, setDraft] = useState<string | null>(null)
+  if (seen !== token) {
+    setSeen(token)
+    setDraft(null)
+  }
+  const shown = draft ?? row.amount
+  const signed = centsToMoney(moneyToCents(row.amount))
   if (readOnly) {
-    return <p className="text-right font-semibold tabular-nums">{formatMoney(row.amount)}</p>
+    return <p className={`text-right font-semibold tabular-nums ${returnAmountClass(signed)}`}>{signed}</p>
   }
   return (
     <input
       {...expenseAmountInputProps}
-      key={`${row.id}-${row.amount}-${resetKey}`}
-      defaultValue={centsToMoney(moneyToCents(row.amount))}
+      data-amount-for={row.id}
+      key={token}
+      defaultValue={signed}
       aria-label={`Amount for ${row.vendor || "receipt"}`}
+      onChange={(event) => setDraft(event.target.value)}
       onBlur={(event) => onAmount(row, event.target.value)}
       onKeyDown={(event) => {
         if (event.key !== "Enter") return
         event.preventDefault()
         event.currentTarget.blur()
       }}
-      className={`${className} ${highlighted ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
+      className={`${className} ${returnAmountClass(shown)} ${highlighted ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
     />
   )
 }
@@ -404,7 +411,7 @@ function CategoryBlock({
                       onAmount={onAmount}
                       readOnly={readOnly}
                       resetKey={amountReset}
-                      className="h-11 w-36 shrink-0 rounded-lg border px-2 text-right text-base font-semibold tabular-nums"
+                      className="h-11 w-40 shrink-0 rounded-lg border px-2 text-right text-base font-semibold tabular-nums"
                     />
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>
@@ -515,7 +522,8 @@ function CategoryBlock({
           ))}
           <div className="bg-muted/60 px-3 py-3">
             <p className="text-sm font-semibold tabular-nums">
-              {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+              {budgetText ? `Budget ${budgetText} · ` : null}
+              <span className={returnAmountClass(centsToMoney(spentCents))}>Spent {total}</span>
               {overBy ? <span className="mt-1 block font-medium text-red-700">Over budget by {overBy}</span> : null}
             </p>
             <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} fullWidth />
@@ -590,7 +598,7 @@ function CategoryBlock({
                       onAmount={onAmount}
                       readOnly={readOnly}
                       resetKey={amountReset}
-                      className="h-9 w-36 rounded-lg border px-2 text-right text-sm tabular-nums"
+                      className="h-9 w-40 rounded-lg border px-2 text-right text-sm tabular-nums"
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -701,7 +709,7 @@ function CategoryBlock({
                 <td className="px-3 py-2" colSpan={3}>
                   Spent
                 </td>
-                <td className="px-3 py-2 tabular-nums">{total}</td>
+                <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
                 <td className="px-3 py-2" colSpan={(readOnly ? 1 : 3) + (invoiceTracking ? 3 : 0)}>
                   {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
                   <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
@@ -851,9 +859,12 @@ function OtherReceipt({
         <p className="font-medium">Other copy</p>
         <p className="break-words">{row.vendor || "Receipt"}</p>
         <p className="text-muted-foreground">
-          {[when || "No date", formatMoney(row.amount), category, row.receiptNumber ? `#${row.receiptNumber}` : null]
-            .filter(Boolean)
-            .join(" · ")}
+          {when || "No date"}
+          {" · "}
+          <span className={returnAmountClass(row.amount)}>{formatMoney(row.amount)}</span>
+          {" · "}
+          {category}
+          {row.receiptNumber ? ` · #${row.receiptNumber}` : ""}
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <button

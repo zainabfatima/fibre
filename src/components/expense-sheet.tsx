@@ -15,7 +15,7 @@ import {
   setExpenseBillingStatus,
   updateExpenseFields,
 } from "@/app/actions/expenses"
-import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
+import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -27,6 +27,7 @@ import {
   moneyToCents,
   needsReturnConfirmation,
   parseMoneyInput,
+  returnAmountClass,
   sumCents,
 } from "@/lib/money"
 
@@ -206,11 +207,11 @@ export function ExpenseSheet({
     }
   }
 
-  async function correctStoredReturn(row: SheetRow, amount: string) {
-    const cents = parseMoneyInput(amount)
-    if (cents == null) return
-    const saved = await persistAmount(row, centsToMoney(Math.abs(cents)), "Saved as a charge")
-    if (saved) setReturnPrompt(null)
+  function declineReturn(row: SheetRow, focus: boolean) {
+    setReturnPrompt(null)
+    if (!focus) return
+    toast.message("The minus sign stays. Edit the amount if this is a regular charge.")
+    focusAmountField(row.id)
   }
 
   async function saveCategory(row: SheetRow, value: string) {
@@ -357,8 +358,8 @@ export function ExpenseSheet({
               {needsReturnConfirmation(item.amount, item.returnConfirmed) ? (
                 <ReturnNotice
                   amount={item.amount}
-                  onConfirm={() => void confirmStoredReturn(item)}
-                  onCorrect={() => void correctStoredReturn(item, item.amount)}
+                  onConfirm={() => void confirmStoredReturn(item, item.amount)}
+                  onCorrect={() => declineReturn(item, true)}
                 />
               ) : null}
               <div className="flex items-start gap-3">
@@ -379,7 +380,7 @@ export function ExpenseSheet({
                       {item.description}
                     </p>
                   ) : null}
-                  <p className="text-sm tabular-nums">{formatMoney(item.amount)}</p>
+                  <p className={`text-sm tabular-nums ${returnAmountClass(item.amount)}`}>{centsToMoney(moneyToCents(item.amount))}</p>
                 </div>
                 {invoiceTracking ? (
                   <input
@@ -412,11 +413,11 @@ export function ExpenseSheet({
               </select>
               <label className="grid gap-1 text-xs">
                 Amount
-                <input
-                  {...expenseAmountInputProps}
-                  key={`${item.id}-${item.amount}-mobile-${amountReset}`}
-                  defaultValue={centsToMoney(moneyToCents(item.amount))}
-                  onBlur={(event) => void saveAmount(item, event.target.value)}
+                <SheetAmountInput
+                  rowId={item.id}
+                  amount={item.amount}
+                  resetKey={`mobile-${amountReset}`}
+                  onAmount={(value) => void saveAmount(item, value)}
                   className="h-11 rounded-lg border border-input bg-transparent px-2 text-base tabular-nums"
                 />
               </label>
@@ -478,8 +479,8 @@ export function ExpenseSheet({
               <ReturnNotice
                 key={item.id}
                 amount={item.amount}
-                onConfirm={() => void confirmStoredReturn(item)}
-                onCorrect={() => void correctStoredReturn(item, item.amount)}
+                onConfirm={() => void confirmStoredReturn(item, item.amount)}
+                onCorrect={() => declineReturn(item, true)}
               />
             ))}
         </div>
@@ -519,15 +520,27 @@ export function ExpenseSheet({
                           ? formatCategory(item.categoryCode, item.categoryName)
                           : "Uncategorized"}
                         {" · "}
-                        {formatMoney(
-                          centsToMoney(
-                            sumCents(
-                              sorted
-                                .filter((candidate) => candidate.categoryId === item.categoryId)
-                                .map((candidate) => candidate.amount),
+                        <span
+                          className={returnAmountClass(
+                            centsToMoney(
+                              sumCents(
+                                sorted
+                                  .filter((candidate) => candidate.categoryId === item.categoryId)
+                                  .map((candidate) => candidate.amount),
+                              ),
                             ),
-                          ),
-                        )}
+                          )}
+                        >
+                          {formatMoney(
+                            centsToMoney(
+                              sumCents(
+                                sorted
+                                  .filter((candidate) => candidate.categoryId === item.categoryId)
+                                  .map((candidate) => candidate.amount),
+                              ),
+                            ),
+                          )}
+                        </span>
                       </div>
                     ) : null}
                     <div className={`grid ${gridClass} items-center gap-2 px-2 py-1 text-sm`}>
@@ -556,11 +569,11 @@ export function ExpenseSheet({
                           </option>
                         ))}
                       </select>
-                      <input
-                        {...expenseAmountInputProps}
-                        key={`${item.id}-${item.amount}-${amountReset}`}
-                        defaultValue={centsToMoney(moneyToCents(item.amount))}
-                        onBlur={(event) => void saveAmount(item, event.target.value)}
+                      <SheetAmountInput
+                        rowId={item.id}
+                        amount={item.amount}
+                        resetKey={String(amountReset)}
+                        onAmount={(value) => void saveAmount(item, value)}
                         className="h-8 rounded-lg border border-input bg-transparent px-2 text-right text-sm tabular-nums"
                       />
                       <button type="button" onClick={() => setPreview(item)} className="h-10 w-10 overflow-hidden rounded border border-border">
@@ -630,7 +643,9 @@ export function ExpenseSheet({
 
       <div className="flex flex-wrap gap-6 text-sm">
         <p>Rows {filtered.length}</p>
-        <p className="font-medium tabular-nums">Total {formatMoney(centsToMoney(grand))}</p>
+        <p className={`font-medium tabular-nums ${returnAmountClass(centsToMoney(grand))}`}>
+          Total {formatMoney(centsToMoney(grand))}
+        </p>
         {receivedCents != null ? (
           <>
             <p className="tabular-nums">Money received {formatMoney(centsToMoney(receivedCents))}</p>
@@ -650,9 +665,11 @@ export function ExpenseSheet({
             ) : (
               <p>Open the file to view this receipt.</p>
             )}
-            <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm underline">
-              Open full size
-            </a>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center text-sm underline">
+                Open full size
+              </a>
+            </div>
           </div>
         </div>
       ) : null}
@@ -660,14 +677,44 @@ export function ExpenseSheet({
         <ReturnConfirmDialog
           amount={returnPrompt.amount}
           onConfirm={() => void confirmStoredReturn(returnPrompt.row, returnPrompt.amount)}
-          onCorrect={() => void correctStoredReturn(returnPrompt.row, returnPrompt.amount)}
-          onDismiss={() => {
-            setReturnPrompt(null)
-            setAmountReset((current) => current + 1)
-          }}
+          onCorrect={() => declineReturn(returnPrompt.row, true)}
+          onDismiss={() => declineReturn(returnPrompt.row, false)}
         />
       ) : null}
 
     </div>
+  )
+}
+
+function SheetAmountInput({
+  rowId,
+  amount,
+  resetKey,
+  className,
+  onAmount,
+}: {
+  rowId: string
+  amount: string
+  resetKey: string
+  className: string
+  onAmount: (value: string) => void
+}) {
+  const token = `${amount}:${resetKey}`
+  const [seen, setSeen] = useState(token)
+  const [draft, setDraft] = useState<string | null>(null)
+  if (seen !== token) {
+    setSeen(token)
+    setDraft(null)
+  }
+  return (
+    <input
+      {...expenseAmountInputProps}
+      data-amount-for={rowId}
+      key={token}
+      defaultValue={centsToMoney(moneyToCents(amount))}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={(event) => onAmount(event.target.value)}
+      className={`${className} ${returnAmountClass(draft ?? amount)}`}
+    />
   )
 }

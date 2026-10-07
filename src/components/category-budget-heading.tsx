@@ -1,3 +1,5 @@
+import { returnAmountClass } from "@/lib/money"
+
 export function CategoryBudgetHeading({
   title,
   budget,
@@ -25,7 +27,7 @@ export function CategoryBudgetHeading({
         className={`shrink-0 text-right tabular-nums ${compact ? "text-sm text-muted-foreground" : "text-sm"}`}
       >
         {budget != null ? <p>Budget {budget}</p> : null}
-        <p className={compact ? "" : "text-base font-semibold"}>Spent {spent}</p>
+        <p className={`${compact ? "" : "text-base font-semibold"} ${returnAmountClass(spent)}`}>Spent {spent}</p>
         {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
       </div>
     </>

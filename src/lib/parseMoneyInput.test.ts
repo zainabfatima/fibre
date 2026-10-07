@@ -4,10 +4,13 @@ import { describe, it } from "node:test"
 import {
   centsToMoney,
   formatMoney,
+  isNegativeAmount,
   moneyToCents,
   needsReturnConfirmation,
   parseMoneyInput,
   parseSignedAmount,
+  returnAmountClass,
+  signedExpenseAmount,
 } from "./money.ts"
 
 describe("parseMoneyInput", () => {
@@ -34,6 +37,17 @@ describe("parseMoneyInput", () => {
     assert.equal(centsToMoney(-37720), "-377.20")
     assert.equal(formatMoney("-377.20"), "-$377.20")
     assert.equal(formatMoney("-377.20").includes("("), false)
+    assert.equal(isNegativeAmount("-377.20"), true)
+    assert.equal(isNegativeAmount("-$377.20"), true)
+    assert.equal(isNegativeAmount("(377.20)"), true)
+    assert.equal(isNegativeAmount("377.20"), false)
+    assert.equal(returnAmountClass("-377.20").includes("text-red-700"), true)
+    assert.equal(returnAmountClass("377.20"), "")
+    assert.equal(signedExpenseAmount("0.00", { total_amount_paid: -323.91 }), "-323.91")
+    assert.equal(signedExpenseAmount("0", "-323.91"), "-323.91")
+    assert.equal(signedExpenseAmount("208.27", { total_amount_paid: -323.91 }), "208.27")
+    assert.equal(signedExpenseAmount("-323.91"), "-323.91")
+    assert.equal(centsToMoney(moneyToCents("-323.91")), "-323.91")
   })
 
   it("asks again only while a negative amount is unconfirmed", () => {

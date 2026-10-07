@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { formatMoney } from "@/lib/money"
+import { formatMoney, returnAmountClass } from "@/lib/money"
 import { formatCategory } from "@/lib/format"
 import { getInvoice, listExpenseRows } from "@/lib/queries"
 
@@ -116,7 +116,7 @@ export default async function InvoiceDetailPage({
                   : "No category"}
               </p>
             </div>
-            <p className="ml-auto tabular-nums">{formatMoney(expense.amount)}</p>
+            <p className={`ml-auto tabular-nums ${returnAmountClass(expense.amount)}`}>{formatMoney(expense.amount)}</p>
           </li>
         ))}
       </ul>

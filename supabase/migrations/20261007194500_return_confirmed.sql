@@ -6,6 +6,13 @@ alter table public.expenses
 comment on column public.expenses.return_confirmed is
   'True after someone confirms this receipt is a return or a negative amount, so it is not asked again. The amount stays negative.';
 
+-- A return that was read as negative but saved as 0 still belongs in the amount column as a minus.
+update public.expenses
+set amount = (ai_extracted->>'total_amount_paid')::numeric
+where amount = 0
+  and ai_extracted->>'total_amount_paid' ~ '^-([0-9]+)(\.[0-9]+)?$'
+  and (ai_extracted->>'total_amount_paid')::numeric < 0;
+
 create or replace view public.v_expense_rows
 with (security_invoker = true) as
 select

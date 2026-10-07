@@ -11,7 +11,7 @@ import { findProjectByClientCode } from "@/lib/client-access"
 import { isClientCode } from "@/lib/client-code"
 import { getClientProjectCode } from "@/lib/client-session"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, moneyToCents, sumCents } from "@/lib/money"
+import { moneyToCents, signedExpenseAmount, sumCents } from "@/lib/money"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
@@ -89,7 +89,7 @@ export default async function ClientProjectPage({
     categoryId: row.category_id,
     categoryCode: row.category_code,
     categoryName: row.category_name,
-    amount: centsToMoney(moneyToCents(row.amount)),
+    amount: signedExpenseAmount(row.amount, row.ai_extracted),
     receiptNumber: row.receipt_number,
     receiptTime: row.receipt_time,
     paymentMethod: row.payment_method,

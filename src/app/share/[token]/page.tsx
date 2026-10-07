@@ -6,7 +6,7 @@ import { CategoryChart } from "@/components/category-chart"
 import { StatusBadge } from "@/components/status-badge"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, moneyToCents, sumCents, amountOverBudget } from "@/lib/money"
+import { centsToMoney, formatMoney, moneyToCents, returnAmountClass, sumCents, amountOverBudget } from "@/lib/money"
 
 export const dynamic = "force-dynamic"
 
@@ -78,7 +78,12 @@ export default async function SharePage({
       </header>
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
-        <SummaryCard label="Total expense" value={formatMoney(centsToMoney(totalCents))} emphasis />
+        <SummaryCard
+          label="Total expense"
+          value={formatMoney(centsToMoney(totalCents))}
+          emphasis
+          negative={totalCents < 0}
+        />
         <SummaryCard label="Money received" value={formatMoney(centsToMoney(receivedCents))} />
         <SummaryCard
           label="Balance left"
@@ -124,16 +129,18 @@ function SummaryCard({
   value,
   alert,
   emphasis,
+  negative,
 }: {
   label: string
   value: string
   alert?: boolean
   emphasis?: boolean
+  negative?: boolean
 }) {
   return (
     <div className={`rounded-xl border-t-4 border-t-primary bg-card p-4 ring-1 ring-foreground/10 ${emphasis ? "col-span-2 lg:col-span-1" : ""}`}>
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-semibold tabular-nums ${emphasis ? "text-3xl" : "text-xl"} ${alert ? "text-red-700" : ""}`}>{value}</p>
+      <p className={`mt-1 font-semibold tabular-nums ${emphasis ? "text-3xl" : "text-xl"} ${negative || alert ? "text-red-700 dark:text-red-300" : ""}`}>{value}</p>
     </div>
   )
 }
@@ -210,7 +217,7 @@ function CategorySection({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-medium leading-snug break-words">{row.vendor || "Receipt"}</p>
-                      <p className="shrink-0 text-base font-semibold tabular-nums">{formatMoney(row.amount)}</p>
+                      <p className={`shrink-0 text-base font-semibold tabular-nums ${returnAmountClass(row.amount)}`}>{centsToMoney(moneyToCents(row.amount))}</p>
                     </div>
                     <p className="mt-0.5 text-muted-foreground">{row.expense_date || "No date"}</p>
                     {row.description ? (
@@ -245,7 +252,8 @@ function CategorySection({
             )
           })}
           <p className={`px-3 py-3 text-sm font-semibold tabular-nums ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
-            {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+            {budgetText ? `Budget ${budgetText} · ` : null}
+            <span className={returnAmountClass(centsToMoney(spentCents))}>Spent {total}</span>
             {overBy ? <span className="mt-1 block font-medium text-red-700">Over budget by {overBy}</span> : null}
           </p>
         </div>
@@ -279,7 +287,7 @@ function CategorySection({
                         {row.description || "—"}
                       </span>
                     </td>
-                    <td className="px-3 py-2 tabular-nums">{formatMoney(row.amount)}</td>
+                    <td className={`px-3 py-2 tabular-nums ${returnAmountClass(row.amount)}`}>{centsToMoney(moneyToCents(row.amount))}</td>
                     <td className="px-3 py-2">
                       <a
                         href={`/r/${row.id}?t=${token}`}
@@ -322,7 +330,7 @@ function CategorySection({
                 <td className="px-3 py-2" colSpan={3}>
                   Spent
                 </td>
-                <td className="px-3 py-2 tabular-nums">{total}</td>
+                <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
                 <td className="px-3 py-2" colSpan={invoiceTracking ? 4 : 1}>
                   {overBy ? <span className="font-medium text-red-700">Over budget by {overBy}</span> : null}
                 </td>

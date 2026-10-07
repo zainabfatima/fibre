@@ -128,6 +128,12 @@ export function parseMoneyInput(value: string): number | null {
 /** True when a negative amount still needs the return confirmation. */
 export function needsReturnConfirmation(amount: string | number, returnConfirmed: boolean) {
   if (returnConfirmed) return false
+  return isNegativeAmount(amount)
+}
+
+/** True for a stored or typed return, including parentheses such as (377.20). */
+export function isNegativeAmount(amount: string | number | null | undefined) {
+  if (amount == null || amount === "") return false
   const cents = parseMoneyInput(String(amount))
   if (cents != null) return cents < 0
   try {
@@ -135,6 +141,34 @@ export function needsReturnConfirmation(amount: string | number, returnConfirmed
   } catch {
     return false
   }
+}
+
+/** Rose/red amount text. The class is a full literal so it stays in the stylesheet. */
+export function returnAmountClass(amount: string | number | null | undefined) {
+  return isNegativeAmount(amount) ? "text-red-700 dark:text-red-300" : ""
+}
+
+/**
+ * Amount column text, such as -323.91.
+ * A stored 0 keeps a negative extracted return so the minus is not dropped.
+ */
+export function signedExpenseAmount(stored: string | number, extracted?: unknown): string {
+  const storedCents = moneyToCents(stored)
+  if (storedCents !== 0) return centsToMoney(storedCents)
+  const paid = extractedPaid(extracted)
+  const numeric = parseSignedAmount(paid)
+  if (numeric != null && numeric < 0) {
+    const cents = moneyToCents(numeric.toFixed(2))
+    if (cents < 0) return centsToMoney(cents)
+  }
+  return centsToMoney(storedCents)
+}
+
+function extractedPaid(extracted: unknown): unknown {
+  if (typeof extracted === "number" || typeof extracted === "string") return extracted
+  if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) return undefined
+  const total = (extracted as { total_amount_paid?: unknown }).total_amount_paid
+  return total ?? undefined
 }
 
 export function sumCents(values: Array<string | number>): number {

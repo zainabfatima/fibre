@@ -49,7 +49,9 @@ function ExpenseTooltip({
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-md">
       <p className="font-medium">{row.name}</p>
-      <p className="tabular-nums">Expense {formatMoney(centsToMoney(row.cents ?? 0))}</p>
+      <p className={`tabular-nums ${(row.cents ?? 0) < 0 ? "text-red-700 dark:text-red-300" : ""}`}>
+        Expense {formatMoney(centsToMoney(row.cents ?? 0))}
+      </p>
     </div>
   )
 }
@@ -73,7 +75,9 @@ export function CategoryChart({
               <span className={`min-w-0 break-words ${row.cents > 0 ? "font-medium" : "text-muted-foreground"}`}>
                 {row.name}
               </span>
-              <span className={`shrink-0 tabular-nums ${row.cents > 0 ? "font-semibold" : "text-muted-foreground"}`}>
+              <span
+                className={`shrink-0 tabular-nums ${row.cents < 0 ? "font-semibold text-red-700 dark:text-red-300" : row.cents > 0 ? "font-semibold" : "text-muted-foreground"}`}
+              >
                 {formatMoney(centsToMoney(row.cents))}
               </span>
             </div>

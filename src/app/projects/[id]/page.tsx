@@ -5,7 +5,7 @@ import { type SheetRow } from "@/components/expense-sheet"
 import { MoneySummary } from "@/components/money-summary"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, moneyToCents, sumCents } from "@/lib/money"
+import { moneyToCents, signedExpenseAmount, sumCents } from "@/lib/money"
 import {
   getProject,
   getSummary,
@@ -54,7 +54,7 @@ export default async function ProjectExpensesPage({
     categoryId: row.category_id,
     categoryCode: row.category_code,
     categoryName: row.category_name,
-    amount: centsToMoney(moneyToCents(row.amount)),
+    amount: signedExpenseAmount(row.amount, row.ai_extracted),
     receiptNumber: row.receipt_number,
     receiptTime: row.receipt_time,
     paymentMethod: row.payment_method,

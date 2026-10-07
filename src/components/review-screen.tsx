@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type FocusEvent } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SIMPLE_DESCRIPTION_MAX_CHARS } from "@/lib/simple-description"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, expenseAmountInputProps, formatMoney, needsReturnConfirmation, parseMoneyInput, sumCents } from "@/lib/money"
+import { centsToMoney, expenseAmountInputProps, formatMoney, needsReturnConfirmation, parseMoneyInput, returnAmountClass, sumCents } from "@/lib/money"
 import { withZainab } from "@/lib/zainab-path"
 import { useZainab } from "@/components/view-mode"
 
@@ -137,19 +137,16 @@ export function ReviewScreen({
     router.refresh()
   }
 
-  async function rejectReturn() {
-    if (returnCents == null) return
-    const positive = centsToMoney(Math.abs(returnCents))
-    const result = await updateExpenseFields({ projectId, expenseId, amount: positive })
-    if (result.error) {
-      toast.error(result.error)
-      return
-    }
-    toast.success("Saved as a charge")
-    setFields((current) => ({ ...current, amount: positive }))
-    setReturnConfirmed(false)
+  function rejectReturn() {
     setReturnDialog(false)
-    router.refresh()
+    toast.message("The minus sign stays. Edit the amount if this is a regular charge.")
+    window.setTimeout(() => {
+      const input = document.getElementById("expense-amount")
+      if (input instanceof HTMLInputElement) {
+        input.focus()
+        input.select()
+      }
+    }, 50)
   }
 
   async function verify() {
@@ -220,13 +217,13 @@ export function ReviewScreen({
     <div className="grid min-w-0 gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
       <div className="min-w-0 overflow-x-auto rounded-xl bg-muted lg:max-h-[80vh] lg:overflow-y-auto">
         <div className="flex flex-wrap gap-2 p-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setZoom((value) => value + 0.25)}>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setZoom((value) => value + 0.25)}>
             Zoom in
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}>
             Zoom out
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => setRotation((value) => value + 90)}>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setRotation((value) => value + 90)}>
             Rotate
           </Button>
         </div>
@@ -250,7 +247,8 @@ export function ReviewScreen({
           <div className="rounded-xl border border-red-200 p-3">
             <p className="text-sm font-medium">Possible duplicate</p>
             <p className="text-sm text-muted-foreground">
-              {duplicate.vendor} · {duplicate.date} · {formatMoney(duplicate.amount)}
+              {duplicate.vendor} · {duplicate.date} ·{" "}
+              <span className={returnAmountClass(duplicate.amount)}>{formatMoney(duplicate.amount)}</span>
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               {previewUrl ? (
@@ -300,11 +298,24 @@ export function ReviewScreen({
         <Field label="Vendor" value={fields.vendor} low={low} onChange={(vendor) => setFields({ ...fields, vendor })} />
         <Field label="Date" value={fields.date} type="date" low={low} onChange={(date) => setFields({ ...fields, date })} />
         <Field
+          id="expense-amount"
           label="Amount"
           value={fields.amount}
           low={low}
           amount
-          onChange={(amount) => setFields({ ...fields, amount })}
+          onChange={(amount) => {
+            setFields({ ...fields, amount })
+            const cents = parseMoneyInput(amount)
+            if (cents != null && cents >= 0) {
+              setReturnConfirmed(false)
+              setReturnDialog(false)
+            }
+          }}
+          onBlur={(event) => {
+            const next = event.relatedTarget
+            if (next instanceof Element && next.closest("[role='dialog']")) return
+            if (needsReturnConfirmation(event.currentTarget.value, returnConfirmed)) setReturnDialog(true)
+          }}
         />
         <Field
           label="Description"
@@ -364,17 +375,31 @@ export function ReviewScreen({
         {splitOpen ? (
           <div className="grid gap-2 rounded-xl border border-border p-3">
             <p className="text-sm">
-              Split total must equal {formatMoney(fields.amount || "0")}. Current{" "}
-              {formatMoney(
-                centsToMoney(
-                  sumCents(
-                    splits
-                      .map((line) => parseMoneyInput(line.amount))
-                      .filter((cents): cents is number => cents != null)
-                      .map((cents) => centsToMoney(cents)),
+              Split total must equal{" "}
+              <span className={returnAmountClass(fields.amount)}>{formatMoney(fields.amount || "0")}</span>. Current{" "}
+              <span
+                className={returnAmountClass(
+                  centsToMoney(
+                    sumCents(
+                      splits
+                        .map((line) => parseMoneyInput(line.amount))
+                        .filter((cents): cents is number => cents != null)
+                        .map((cents) => centsToMoney(cents)),
+                    ),
                   ),
-                ),
-              )}
+                )}
+              >
+                {formatMoney(
+                  centsToMoney(
+                    sumCents(
+                      splits
+                        .map((line) => parseMoneyInput(line.amount))
+                        .filter((cents): cents is number => cents != null)
+                        .map((cents) => centsToMoney(cents)),
+                    ),
+                  ),
+                )}
+              </span>
             </p>
             {splits.map((line, lineIndex) => (
               <div key={lineIndex} className="grid gap-2">
@@ -396,6 +421,7 @@ export function ReviewScreen({
                     setSplits(next)
                   }}
                   placeholder="Amount, or -377.20 for a return"
+                  className={`min-h-11 ${returnAmountClass(line.amount)}`}
                 />
                 <select
                   value={line.categoryId ?? ""}
@@ -456,18 +482,22 @@ export function ReviewScreen({
 }
 
 function Field({
+  id,
   label,
   value,
   onChange,
+  onBlur,
   low,
   type = "text",
   maxLength,
   placeholder,
   amount = false,
 }: {
+  id?: string
   label: string
   value: string
   onChange: (value: string) => void
+  onBlur?: (event: FocusEvent<HTMLInputElement>) => void
   low?: boolean
   type?: string
   maxLength?: number
@@ -479,11 +509,19 @@ function Field({
       <Label>{label}</Label>
       <Input
         {...(amount ? expenseAmountInputProps : { type })}
+        id={id}
         value={value}
         maxLength={maxLength}
         placeholder={amount ? "0.00 or -377.20" : placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className={low ? "bg-amber-50" : undefined}
+        onBlur={onBlur}
+        className={[
+          low ? "bg-amber-50" : "",
+          amount ? "min-h-11 text-base" : "",
+          amount ? returnAmountClass(value) : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       />
     </div>
   )
