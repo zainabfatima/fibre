@@ -110,7 +110,7 @@ function readRow(excelRow: ExcelJS.Row): { name: string; amountValue: ExcelJS.Ce
   const thirdValue = excelRow.getCell(3).value
   const thirdText = cellText(thirdValue).trim()
   const code = /^\d{1,2}$/.test(first) ? Number(first) : null
-  if (code != null && code >= 1 && code <= 58 && second && moneyCents(thirdValue) != null) {
+  if (code != null && code >= 1 && code <= 59 && second && moneyCents(thirdValue) != null) {
     const name = /^\d/.test(second) ? second : `${code} – ${second}`
     return { name, amountValue: thirdValue, amountText: thirdText }
   }

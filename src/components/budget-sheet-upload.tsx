@@ -56,7 +56,7 @@ export function BudgetSheetUpload() {
         <h2 className="font-medium">Budget sheet</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Upload an Excel file with two columns: category name and budget amount. Claude matches each
-          row to the 58 categories, even if a name is slightly different. This becomes the default
+          row to the 59 categories, even if a name is slightly different. This becomes the default
           budget on every project, including projects you create later. A new file replaces those
           defaults. A budget you change by hand on one project stays on that project only.
         </p>

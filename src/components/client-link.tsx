@@ -32,7 +32,7 @@ export function ClientLink({ code }: { code: string | null }) {
   }
 
   return (
-    <div className="w-full rounded-lg bg-card p-3 ring-1 ring-foreground/10 sm:max-w-sm sm:shrink-0">
+    <div className="w-full max-w-lg rounded-lg bg-card p-3 ring-1 ring-foreground/10">
       <p className="text-sm font-medium">Client link</p>
       <p className="mt-1 text-sm break-all text-muted-foreground">{url}</p>
       <p className="mt-1 text-sm">Client enters {code}.</p>

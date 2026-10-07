@@ -45,6 +45,7 @@ export function UploadQueue({
   const [running, setRunning] = useState(false)
   const [scan, setScan] = useState<{ files: File[]; camera: boolean } | null>(null)
   const [reviewId, setReviewId] = useState<string | null>(null)
+  const [savedNote, setSavedNote] = useState<string | null>(null)
   const [manual, setManual] = useState(true)
   const [categoryId, setCategoryId] = useState("")
   const [categoryError, setCategoryError] = useState<string | null>(null)
@@ -94,6 +95,7 @@ export function UploadQueue({
   }
 
   async function saveResults(results: ScanResult[]) {
+    const fromCamera = scan?.camera === true
     const lockedCategory = chosenCategoryId()
     if (manual && lockedCategory == null) {
       setCategoryError("Pick a category before uploading receipts.")
@@ -103,6 +105,7 @@ export function UploadQueue({
     setScan(null)
     setRunning(true)
     setReviewId(null)
+    setSavedNote(null)
     let firstReady: string | null = null
     let hadProblem = false
     for (const result of results) {
@@ -151,6 +154,11 @@ export function UploadQueue({
     setRunning(false)
     if (!firstReady) return
     router.refresh()
+    if (fromCamera) {
+      if (hadProblem) setReviewId(firstReady)
+      else setSavedNote("Saved. Open Review when you are ready.")
+      return
+    }
     if (!hadProblem) {
       router.push(`/projects/${projectId}/review?expense=${firstReady}`)
       return
@@ -260,6 +268,7 @@ export function UploadQueue({
         </div>
       )}
       {running ? <p className="text-sm text-muted-foreground">Saving the scan…</p> : null}
+      {savedNote ? <p className="text-sm text-muted-foreground">{savedNote}</p> : null}
       {reviewId ? (
         <Link
           href={`/projects/${projectId}/review?expense=${reviewId}`}

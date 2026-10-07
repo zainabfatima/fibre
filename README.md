@@ -49,7 +49,7 @@ Migrations live in `supabase/migrations`. `20261004180000_init.sql` creates:
 - Tables: `projects`, `categories`, `project_budgets`, `invoices`, `expenses`, `expense_audit`
 - Views: `v_expense_rows`, `v_project_category_totals`, `v_project_summary`
 - Row level security for authenticated users (`public.has_company_access()`)
-- The 58 categories (Architectural through Miscellaneous). A later migration replaces the original 55-name list.
+- The 59 categories (Architectural through Miscellaneous), including Retaining wall immediately before Foundation. A later migration replaces the original 55-name list.
 - Private Storage buckets `receipts` and `invoices` (20 MB; JPEG, PNG, WebP, PDF) and their policies
 
 You do not create the buckets by hand. The migration inserts them.
@@ -62,7 +62,7 @@ npx supabase db push
 
 Confirm in the dashboard:
 
-- **Table Editor** shows `categories` with 58 rows
+- **Table Editor** shows `categories` with 59 rows
 - **Storage** shows private buckets `receipts` and `invoices`
 
 ## 3. Sign in

@@ -9,18 +9,18 @@ export const CATEGORY_RULES = `Some categories overlap. Apply these rules when s
 - Rented machinery → 11 Equipment rental. Dumpsters → 12 Dumpsters.
 - Excavation and grading → 13 Excavation / grading. Driveway or drive apron → 15 Driveway. Landscaping, sod, or irrigation → 16 Landscaping / irrigation. Deck or patio → 17 Deck / patio.
 - Rain gutters → 19. Pressure washing → 20. Exterior paint → 21. Exterior work with no closer trade → 22 Other exterior.
-- Foundation, footings, slab, and rebar for the house → 23 Foundation. Brick, stone, or masonry veneer → 24 Masonry / stone.
-- Lumber purchases and framing labor both → 25 Rough framing / lumber.
-- Roofing → 26. Siding → 27. Windows → 28. Exterior doors → 29. Garage door → 30. Fireplace → 31.
-- HVAC rough, equipment, and trim-out → 32. Plumbing labor and plumbing fixtures → 33. Electrical labor and light fixtures → 34. Alarm, data, cameras, or low voltage → 35.
-- Insulation → 36. Drywall → 37. Interior doors → 38. Interior trim and millwork → 39.
-- Floor finishes (tile floors, wood, carpet) → 40 Flooring: tile, wood, carpet. Interior paint → 41. Do not put shower tile in 40.
-- Mirrors → 42. Shower glass → 43. Shower tile → 44. Tubs → 45. Other interior work → 46.
-- Kitchen cabinets → 47. Bathroom cabinets → 48. Kitchen countertops → 49. Bathroom vanity tops → 50. Backsplash → 51. Appliances → 52. Other kitchen items → 53.
-- Supervision → 54. Day labor or general labor → 55. Final cleaning → 56 Cleaning. Mid-build or broom clean → 57 Rough clean.
+- Retaining wall → 23. Foundation, footings, slab, and rebar for the house → 24 Foundation. Brick, stone, or masonry veneer → 25 Masonry / stone.
+- Lumber purchases and framing labor both → 26 Rough framing / lumber.
+- Roofing → 27. Siding → 28. Windows → 29. Exterior doors → 30. Garage door → 31. Fireplace → 32.
+- HVAC rough, equipment, and trim-out → 33. Plumbing labor and plumbing fixtures → 34. Electrical labor and light fixtures → 35. Alarm, data, cameras, or low voltage → 36.
+- Insulation → 37. Drywall → 38. Interior doors → 39. Interior trim and millwork → 40.
+- Floor finishes (tile floors, wood, carpet) → 41 Flooring: tile, wood, carpet. Interior paint → 42. Do not put shower tile in 41.
+- Mirrors → 43. Shower glass → 44. Shower tile → 45. Tubs → 46. Other interior work → 47.
+- Kitchen cabinets → 48. Bathroom cabinets → 49. Kitchen countertops → 50. Bathroom vanity tops → 51. Backsplash → 52. Appliances → 53. Other kitchen items → 54.
+- Supervision → 55. Day labor or general labor → 56. Final cleaning → 57 Cleaning. Mid-build or broom clean → 58 Rough clean.
 - Use the specific trade. There is no generic subcontractor or materials category.
-- Delivery included on a material receipt stays with that material. Standalone delivery with no material → 58.
-- Miscellaneous: 58 is last resort; when suggested, confidence < 0.6.
+- Delivery included on a material receipt stays with that material. Standalone delivery with no material → 59.
+- Miscellaneous: 59 is last resort; when suggested, confidence < 0.6.
 - If a receipt clearly spans multiple categories, set "split_suggested": true and give each line item its category_code.`
 
 const lineItemSchema = z.object({
@@ -80,7 +80,7 @@ export function parseExtraction(text: string) {
   let confidence = Number.isFinite(data.confidence) ? data.confidence : 0
   if (!date || data.total_amount_paid == null) confidence = Math.min(confidence, 0.69)
   const codes = data.suggested_categories.slice(0, 3)
-  if (codes.some((item) => item.code === 58)) confidence = Math.min(confidence, 0.59)
+  if (codes.some((item) => item.code === 59)) confidence = Math.min(confidence, 0.59)
   return { ...data, date, confidence, suggested_categories: codes }
 }
 

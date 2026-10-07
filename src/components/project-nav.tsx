@@ -24,6 +24,7 @@ export function ProjectNav({
     { key: "review", href: "/review", label: pendingReviews > 0 ? `Review (${pendingReviews})` : "Review" },
     { key: "payments", href: "/payments", label: "Money received" },
     ...(invoiceTracking ? [{ key: "invoices", href: "/invoices", label: "Invoices" }] : []),
+    { key: "share", href: "/share", label: "Share" },
     { key: "settings", href: "/settings", label: "Settings" },
   ]
 
