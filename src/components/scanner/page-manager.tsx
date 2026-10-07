@@ -44,7 +44,7 @@ export function PageManager({
       }}
     >
       <SortableContext items={pages.map((page) => page.id)} strategy={horizontalListSortingStrategy}>
-        <ul className="flex gap-2 overflow-x-auto pb-2">
+        <ul className="flex max-w-full gap-2 overflow-x-auto pb-2">
           {pages.map((page, index) => (
             <SortableThumb key={page.id} page={page} number={index + 1} onDelete={onDelete} onEdit={onEdit} />
           ))}
@@ -85,7 +85,7 @@ function SortableThumb({
       </button>
       <div className="mt-1 flex items-center justify-between text-xs">
         <span>{number}</span>
-        <button type="button" onClick={() => onDelete(page.id)} className="text-destructive">
+        <button type="button" onClick={() => onDelete(page.id)} className="min-h-11 px-2 text-sm text-destructive">
           Delete
         </button>
       </div>

@@ -59,9 +59,12 @@ function paintPage(page: Draft): Draft {
   const method = pageMethod(page)
   const corners = page.choice === "original" ? fullFrameCorners(page.source.width, page.source.height) : page.corners
   const rendered = renderCrop(page.source, corners, method, page.confidence)
+  const keptOriginal = rendered.method === "none"
+  const frame = fullFrameCorners(page.source.width, page.source.height)
   return {
     ...page,
-    corners: page.choice === "original" ? corners : rendered.corners,
+    choice: keptOriginal ? "original" : page.choice,
+    corners: keptOriginal ? frame : rendered.corners,
     processed: rendered.image,
     checks: checksFor(asImageData(rendered.image), rendered.image.width),
     previewUrl: rasterToDataUrl(rendered.image),

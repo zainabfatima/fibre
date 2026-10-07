@@ -27,8 +27,10 @@ export function CameraCapture({
 
   useEffect(() => {
     if (!window.isSecureContext) {
-      setError("The camera needs a secure https connection.")
-      return
+      const timer = window.setTimeout(() => {
+        setError("The camera needs a secure https connection.")
+      }, 0)
+      return () => window.clearTimeout(timer)
     }
     let stream: MediaStream | null = null
     let timer = 0
@@ -99,6 +101,8 @@ export function CameraCapture({
       window.clearInterval(timer)
       stream?.getTracks().forEach((track) => track.stop())
     }
+    // The camera starts once. `grab` reads refs and must not reopen the stream.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function grab(stream?: MediaStream | null) {
@@ -138,7 +142,7 @@ export function CameraCapture({
       {error ? (
         <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
           <p>{error}</p>
-          <label className="rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+          <label className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Choose a photo
             <input
               type="file"
@@ -151,7 +155,7 @@ export function CameraCapture({
               }}
             />
           </label>
-          <button type="button" onClick={onClose} className="text-sm underline">
+          <button type="button" onClick={onClose} className="min-h-11 px-3 text-sm underline">
             Close
           </button>
         </div>
@@ -160,18 +164,18 @@ export function CameraCapture({
           <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
           <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
           <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-            <button type="button" onClick={onClose} className="rounded-lg bg-black/50 px-3 py-2 text-sm">
+            <button type="button" onClick={onClose} className="min-h-11 rounded-lg bg-black/50 px-3 text-sm">
               Close
             </button>
             <span className="rounded-full bg-black/50 px-3 py-1 text-sm">Page {pageNumber}</span>
-            <button type="button" onClick={() => void toggleTorch()} className="rounded-lg bg-black/50 px-3 py-2 text-sm">
+            <button type="button" onClick={() => void toggleTorch()} className="min-h-11 rounded-lg bg-black/50 px-3 text-sm">
               {torch ? "Flash on" : "Flash"}
             </button>
           </div>
           <button
             type="button"
             onClick={() => void grab()}
-            className="absolute bottom-8 left-1/2 h-16 w-16 -translate-x-1/2 rounded-full border-4 border-white bg-white/30"
+            className="absolute bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 h-16 w-16 -translate-x-1/2 rounded-full border-4 border-white bg-white/30"
             aria-label="Take photo"
           />
         </>
