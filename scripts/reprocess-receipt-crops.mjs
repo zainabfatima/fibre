@@ -29,6 +29,8 @@ const dryRun = process.argv.includes("--dry-run")
 const selfTestOnly = process.argv.includes("--self-test")
 const limitArg = process.argv.find((arg) => arg.startsWith("--limit="))
 const limit = limitArg ? Number(limitArg.slice("--limit=".length)) : Infinity
+const kindArg = process.argv.find((arg) => arg.startsWith("--kind="))
+const kindFilter = kindArg ? kindArg.slice("--kind=".length) : ""
 
 loadEnv(resolve(root, ".env.local"))
 
@@ -101,7 +103,9 @@ const stats = {
   originals: "receipt-originals",
 }
 
-const queue = [...groups.images, ...groups.pdfs].slice(0, Number.isFinite(limit) ? limit : undefined)
+const queue = [...groups.images, ...groups.pdfs]
+  .filter((group) => !kindFilter || group.kind === kindFilter)
+  .slice(0, Number.isFinite(limit) ? limit : undefined)
 for (const group of queue) {
   const label = group.rows.map((row) => row.receipt_number || row.id.slice(0, 8)).join(", ")
   try {
@@ -200,10 +204,7 @@ async function ensureCropSchema() {
     return "DATABASE_URL is not set, so the crop migration was not applied from here. Column writes are attempted and skipped if the columns are missing."
   }
   const pg = await loadPg()
-  const client = new pg.Client({
-    connectionString,
-    ssl: connectionString.includes("localhost") ? undefined : { rejectUnauthorized: false },
-  })
+  const client = new pg.Client(pgConfig(connectionString))
   await client.connect()
   try {
     const columns = await client.query(
@@ -238,20 +239,38 @@ async function ensureCropSchema() {
       `select column_name from information_schema.columns where table_schema = 'public' and table_name = 'expenses'`,
     )
     const tableNames = new Set(tableNow.rows.map((row) => row.column_name))
+    let viewNote = "The expense view already includes crop columns."
     if (cropColumns.some((name) => !viewNames.has(name)) && tableNames.has("return_confirmed")) {
       const latest = readFileSync(resolve(root, "supabase/migrations/20261007194500_return_confirmed.sql"), "utf8")
       const statement = latest.slice(latest.indexOf("create or replace view"))
       await client.query(statement)
+      viewNote = "Updated v_expense_rows to include crop columns."
     } else if (cropColumns.some((name) => !viewNames.has(name))) {
       const cropMigration = readFileSync(resolve(root, "supabase/migrations/20261007190000_receipt_crop.sql"), "utf8")
       const statement = cropMigration.slice(cropMigration.indexOf("create or replace view"))
       await client.query(statement)
+      viewNote = "Updated v_expense_rows to include crop columns."
     }
+    await client.query(`notify pgrst, 'reload schema'`)
     return missing.length
-      ? `Applied missing crop columns (${missing.join(", ")}) and allowed PDF originals in receipt-originals.`
-      : "Crop columns are already on expenses. PDF originals are allowed in receipt-originals."
+      ? `Applied missing crop columns (${missing.join(", ")}). PDF originals are allowed in receipt-originals. ${viewNote}`
+      : `Crop columns are already on expenses. PDF originals are allowed in receipt-originals. ${viewNote}`
   } finally {
     await client.end()
+  }
+}
+
+function pgConfig(connectionString) {
+  const cleaned = connectionString
+    .replace(/([?&])sslmode=[^&]*/gi, "$1")
+    .replace(/([?&])ssl=[^&]*/gi, "$1")
+    .replace(/\?&/g, "?")
+    .replace(/&&/g, "&")
+    .replace(/[?&]$/g, "")
+  const local = /@(localhost|127\.0\.0\.1)(:|\/|\?|$)/.test(cleaned)
+  return {
+    connectionString: cleaned,
+    ssl: local ? undefined : { rejectUnauthorized: false },
   }
 }
 
@@ -259,12 +278,7 @@ async function loadPg() {
   try {
     return require("pg")
   } catch {
-    const { pathToFileURL } = await import("node:url")
-    const imported = await import("pg").catch(() => null)
-    if (imported?.default) return imported.default
-    if (imported?.Client) return imported
-    void pathToFileURL
-    throw new Error("The pg package is not installed. Install it or set up the Supabase CLI, then rerun this script.")
+    throw new Error("The pg package is not installed. Run npm install, then rerun this script.")
   }
 }
 
@@ -344,9 +358,12 @@ function findHighlighted(rows) {
     const matches = rows.filter(
       (row) => String(row.receipt_number ?? "") === number || String(row.id) === number,
     )
+    const loose = rows.filter((row) => String(row.receipt_number ?? "").includes(number))
     notes[number] = matches.length
       ? matches.map((row) => `${row.id} path ${row.receipt_file_path || "(none)"} crop ${row.crop_method || "unset"}`).join("; ")
-      : "not in expenses"
+      : loose.length
+        ? `no exact match; close receipt numbers: ${loose.map((row) => row.receipt_number).join(", ")}`
+        : "not in expenses"
   }
   return notes
 }
@@ -372,9 +389,6 @@ async function processGroup(group, cropColumns) {
     upsert: true,
   })
   if (uploaded.error) throw new Error(uploaded.error.message)
-  if (nextPath !== group.path) {
-    await supabase.storage.from("receipts").remove([group.path])
-  }
   const thumb = await thumbnailFromJpeg(scanned.previewJpeg)
   await updateRows(group, {
     cropColumns,
@@ -388,6 +402,10 @@ async function processGroup(group, cropColumns) {
     originalPaths: original.paths,
     thumb,
   })
+  if (nextPath !== group.path) {
+    const removed = await supabase.storage.from("receipts").remove([group.path])
+    if (removed.error) console.error(`old file ${group.path}: ${removed.error.message}`)
+  }
   return { method: scanned.method, needsManualCrop: scanned.needsManualCrop, originalPath: original.path }
 }
 
@@ -551,10 +569,30 @@ async function thumbnailFromJpeg(jpeg) {
   return sharp(jpeg).resize({ width: 400, withoutEnlargement: true }).webp({ quality: 75 }).toBuffer()
 }
 
+async function thumbnailForPath(path, previewJpeg) {
+  const lower = path.toLowerCase()
+  if (lower.endsWith(".webp")) {
+    return { body: await thumbnailFromJpeg(previewJpeg), type: "image/webp" }
+  }
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+    return {
+      body: await sharp(previewJpeg).resize({ width: 400, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
+      type: "image/jpeg",
+    }
+  }
+  if (lower.endsWith(".png")) {
+    return {
+      body: await sharp(previewJpeg).resize({ width: 400, withoutEnlargement: true }).png().toBuffer(),
+      type: "image/png",
+    }
+  }
+  return null
+}
+
 async function rasterizePdf(bytes) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
-  const data = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  const pdf = await pdfjs.getDocument({
+  const data = new Uint8Array(bytes)
+  const loadingTask = pdfjs.getDocument({
     data,
     disableWorker: true,
     isEvalSupported: false,
@@ -562,7 +600,8 @@ async function rasterizePdf(bytes) {
     standardFontDataUrl: factoryUrl(resolve(root, "node_modules/pdfjs-dist/standard_fonts")),
     cMapUrl: factoryUrl(resolve(root, "node_modules/pdfjs-dist/cmaps")),
     cMapPacked: true,
-  }).promise
+  })
+  const pdf = await loadingTask.promise
   const pages = []
   try {
     for (let number = 1; number <= pdf.numPages; number += 1) {
@@ -582,7 +621,8 @@ async function rasterizePdf(bytes) {
       page.cleanup()
     }
   } finally {
-    await pdf.destroy()
+    await pdf.cleanup()
+    await loadingTask.destroy()
   }
   return pages
 }
