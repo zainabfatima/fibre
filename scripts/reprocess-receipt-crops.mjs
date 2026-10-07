@@ -78,8 +78,10 @@ if (loaded.unreachable) {
 
 const groups = groupReceipts(loaded.rows, loaded.cropColumns)
 const highlighted = findHighlighted(loaded.rows)
+const skippedImages = groups.skipped.filter((group) => group.kind === "image").length
+const skippedPdfs = groups.skipped.filter((group) => group.kind === "pdf").length
 console.log(
-  `Dry run: ${groups.images.length} image file${groups.images.length === 1 ? "" : "s"}, ${groups.pdfs.length} PDF file${groups.pdfs.length === 1 ? "" : "s"}, ${groups.other.length} other, ${groups.skipped.length} already cropped.`,
+  `Found ${groups.images.length + skippedImages} image files and ${groups.pdfs.length + skippedPdfs} PDF files. ${groups.skipped.length} already cropped and will be skipped. ${groups.other.length} other files are not receipts.`,
 )
 console.log(`Receipt 5059: ${highlighted["5059"]}`)
 console.log(`Receipt 4998: ${highlighted["4998"]}`)
@@ -92,8 +94,8 @@ if (dryRun) {
 }
 
 const stats = {
-  images: groups.images.length,
-  pdfs: groups.pdfs.length,
+  images: groups.images.length + skippedImages,
+  pdfs: groups.pdfs.length + skippedPdfs,
   transformedImages: 0,
   transformedPdfs: 0,
   skipped: groups.skipped.length,
