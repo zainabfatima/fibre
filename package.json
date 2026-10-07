@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --experimental-strip-types --test src/lib/receiptCrop.test.ts",
-    "seed": "node scripts/seed-demo.mjs"
+    "seed": "node scripts/seed-demo.mjs",
+    "reprocess-crops": "node scripts/reprocess-receipt-crops.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

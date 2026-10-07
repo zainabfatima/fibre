@@ -34,6 +34,10 @@ comment on column public.expenses.crop_method is
 comment on column public.expenses.needs_manual_crop is
   'True when the paper edges were not confident and the full photo was kept.';
 
+update storage.buckets
+set allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+where id = 'receipt-originals';
+
 create or replace view public.v_expense_rows
 with (security_invoker = true) as
 select
