@@ -2,7 +2,7 @@ import { notFound } from "next/navigation"
 
 import { ReviewScreen } from "@/components/review-screen"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { centsToMoney, moneyToCents } from "@/lib/money"
+import { centsToMoney, moneyToCents, parseSignedAmount } from "@/lib/money"
 import { listCategories, listExpenseRows } from "@/lib/queries"
 import type { Json } from "@/types/database"
 
@@ -15,17 +15,9 @@ function asRecord(value: Json | null) {
 
 function receiptAmount(stored: string | number, extracted: Record<string, Json | undefined> | null) {
   const storedCents = moneyToCents(stored)
-  if (storedCents > 0) return centsToMoney(storedCents)
-  const raw = extracted?.total_amount_paid
-  const numeric =
-    typeof raw === "number"
-      ? raw
-      : typeof raw === "string"
-        ? Number(raw.replace(/[$,\s]/g, ""))
-        : Number.NaN
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return centsToMoney(moneyToCents(numeric.toFixed(2)))
-  }
+  if (storedCents !== 0) return centsToMoney(storedCents)
+  const numeric = parseSignedAmount(extracted?.total_amount_paid)
+  if (numeric != null) return centsToMoney(moneyToCents(numeric.toFixed(2)))
   return centsToMoney(storedCents)
 }
 
@@ -130,6 +122,7 @@ export default async function ReviewPage({
       }
       splitSuggested={extracted?.split_suggested === true}
       lineItems={lineItems}
+      returnConfirmed={Boolean(current.return_confirmed)}
       duplicate={
         duplicate
           ? {

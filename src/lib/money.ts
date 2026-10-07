@@ -91,10 +91,27 @@ export function parseSignedAmount(value: unknown): number | null {
 }
 
 export function parseMoneyInput(value: string): number | null {
-  const cleaned = value.replace(/[$,\s]/g, "")
-  if (!/^-?\d+(\.\d{0,2})?$/.test(cleaned)) return null
-  const normalized = cleaned.includes(".") ? cleaned : `${cleaned}.00`
-  return moneyToCents(normalized)
+  const trimmed = value.trim()
+  const wrapped = trimmed.match(/^\((.*)\)\s*$/)
+  const body = (wrapped ? wrapped[1] : trimmed).replace(/[$,\s]/g, "")
+  if (!/^-?\d+(\.\d{0,2})?$/.test(body)) return null
+  const negative = Boolean(wrapped) || body.startsWith("-")
+  const unsigned = body.replace(/^-/, "")
+  const normalized = unsigned.includes(".") ? unsigned : `${unsigned}.00`
+  const cents = moneyToCents(normalized)
+  return negative ? -Math.abs(cents) : cents
+}
+
+/** True when a negative amount still needs the return confirmation. */
+export function needsReturnConfirmation(amount: string | number, returnConfirmed: boolean) {
+  if (returnConfirmed) return false
+  const cents = parseMoneyInput(String(amount))
+  if (cents != null) return cents < 0
+  try {
+    return moneyToCents(amount) < 0
+  } catch {
+    return false
+  }
 }
 
 export function sumCents(values: Array<string | number>): number {

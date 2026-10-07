@@ -4,14 +4,15 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
-import { clearDuplicate, deleteExpense, saveSplit, updateExpenseFields } from "@/app/actions/expenses"
+import { clearDuplicate, confirmReturn, deleteExpense, saveSplit, updateExpenseFields } from "@/app/actions/expenses"
+import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { ReceiptPages } from "@/components/receipt-pages"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SIMPLE_DESCRIPTION_MAX_CHARS } from "@/lib/simple-description"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, parseMoneyInput, sumCents } from "@/lib/money"
+import { centsToMoney, formatMoney, needsReturnConfirmation, parseMoneyInput, sumCents } from "@/lib/money"
 import { withZainab } from "@/lib/zainab-path"
 import { useZainab } from "@/components/view-mode"
 
@@ -39,6 +40,7 @@ export function ReviewScreen({
   splitSuggested,
   lineItems,
   duplicate,
+  returnConfirmed: returnConfirmedInitial,
   audit,
   categories,
 }: {
@@ -68,6 +70,7 @@ export function ReviewScreen({
     date: string | null
     imageUrl: string | null
   } | null
+  returnConfirmed: boolean
   audit: Array<{ field: string; oldValue: string | null; newValue: string | null; at: string }>
   categories: CategoryOption[]
 }) {
@@ -99,6 +102,8 @@ export function ReviewScreen({
           { description: "", amount: "", categoryId: null },
         ],
   )
+  const [returnConfirmed, setReturnConfirmed] = useState(returnConfirmedInitial)
+  const [returnDialog, setReturnDialog] = useState(() => needsReturnConfirmation(amount, returnConfirmedInitial))
   const zainab = useZainab()
   const index = queue.indexOf(expenseId)
   const low = confidence != null && confidence < 0.7
@@ -114,7 +119,45 @@ export function ReviewScreen({
     router.push(withZainab(`/projects/${projectId}/review?expense=${nextId}`, zainab))
   }
 
+  const returnCents = parseMoneyInput(fields.amount)
+  const returnAmount = returnCents != null && returnCents < 0 ? centsToMoney(returnCents) : null
+  const needsReturn = returnAmount != null && !returnConfirmed
+
+  async function acceptReturn() {
+    if (!returnAmount) return
+    const result = await confirmReturn(projectId, expenseId, returnAmount)
+    if (result.error) {
+      toast.error(result.error)
+      return
+    }
+    toast.success("Marked as a return")
+    setFields((current) => ({ ...current, amount: returnAmount }))
+    setReturnConfirmed(true)
+    setReturnDialog(false)
+    router.refresh()
+  }
+
+  async function rejectReturn() {
+    if (returnCents == null) return
+    const positive = centsToMoney(Math.abs(returnCents))
+    const result = await updateExpenseFields({ projectId, expenseId, amount: positive })
+    if (result.error) {
+      toast.error(result.error)
+      return
+    }
+    toast.success("Saved as a charge")
+    setFields((current) => ({ ...current, amount: positive }))
+    setReturnConfirmed(false)
+    setReturnDialog(false)
+    router.refresh()
+  }
+
   async function verify() {
+    if (needsReturnConfirmation(fields.amount, returnConfirmed)) {
+      setReturnDialog(true)
+      toast.error("Confirm this return before verifying")
+      return
+    }
     const result = await updateExpenseFields({
       projectId,
       expenseId,
@@ -140,6 +183,7 @@ export function ReviewScreen({
       const target = event.target as HTMLElement
       const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
       if (event.key === "Enter" && !event.shiftKey) {
+        if (returnDialog) return
         event.preventDefault()
         void verify()
       }
@@ -249,6 +293,9 @@ export function ReviewScreen({
               </Button>
             </div>
           </div>
+        ) : null}
+        {needsReturn && returnAmount ? (
+          <ReturnNotice amount={returnAmount} onConfirm={() => void acceptReturn()} onCorrect={() => void rejectReturn()} />
         ) : null}
         <Field label="Vendor" value={fields.vendor} low={low} onChange={(vendor) => setFields({ ...fields, vendor })} />
         <Field label="Date" value={fields.date} type="date" low={low} onChange={(date) => setFields({ ...fields, date })} />
@@ -389,6 +436,14 @@ export function ReviewScreen({
           </div>
         ) : null}
       </div>
+      {returnDialog && needsReturn && returnAmount ? (
+        <ReturnConfirmDialog
+          amount={returnAmount}
+          onConfirm={() => void acceptReturn()}
+          onCorrect={() => void rejectReturn()}
+          onDismiss={() => setReturnDialog(false)}
+        />
+      ) : null}
     </div>
   )
 }

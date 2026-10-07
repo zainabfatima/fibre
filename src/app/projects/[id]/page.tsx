@@ -60,6 +60,7 @@ export default async function ProjectExpensesPage({
     paymentMethod: row.payment_method,
     cardLast4: row.card_last4,
     duplicateOf: row.duplicate_of,
+    returnConfirmed: Boolean(row.return_confirmed),
     thumbUrl: row.receipt_thumbnail_path
       ? (thumbByPath.get(row.receipt_thumbnail_path) ?? null)
       : null,

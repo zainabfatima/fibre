@@ -95,6 +95,7 @@ export default async function ClientProjectPage({
     paymentMethod: row.payment_method,
     cardLast4: row.card_last4,
     duplicateOf: null,
+    returnConfirmed: Boolean(row.return_confirmed),
     thumbUrl: row.receipt_thumbnail_path ? (thumbByPath.get(row.receipt_thumbnail_path) ?? null) : null,
     invoiceId: row.invoice_id,
     invoiceNumber: row.invoice_number,

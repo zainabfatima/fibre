@@ -298,18 +298,54 @@ export async function updateExpenseFields(input: {
     const cents = parseMoneyInput(input.amount)
     if (cents == null) return { error: "Amount is not valid" }
     patch.amount = centsToMoney(cents)
+    if (cents >= 0) patch.return_confirmed = false
   }
   if ("vendor" in input) patch.vendor = input.vendor?.trim() || null
   if ("expenseDate" in input) patch.expense_date = input.expenseDate || null
   if ("description" in input) patch.description = simpleDescription(input.description) || null
   if ("receiptNumber" in input) patch.receipt_number = input.receiptNumber?.trim() || null
   if ("paymentMethod" in input) patch.payment_method = input.paymentMethod?.trim() || null
-  if (input.verify) patch.verification_status = "verified"
+  if (input.verify) {
+    const { data: existing, error: existingError } = await supabase
+      .from("expenses")
+      .select("amount, return_confirmed")
+      .eq("id", input.expenseId)
+      .maybeSingle()
+    if (existingError || !existing) return { error: existingError?.message ?? "Expense not found" }
+    const cents = input.amount != null ? parseMoneyInput(input.amount) : moneyToCents(existing.amount)
+    if (cents != null && cents < 0 && !existing.return_confirmed) {
+      return { error: "Confirm this return before verifying" }
+    }
+    patch.verification_status = "verified"
+  }
 
   const { error } = await supabase.from("expenses").update(patch).eq("id", input.expenseId)
   if (error) return { error: error.message }
   if (input.amount != null) await syncDuplicateFlag(input.projectId, input.expenseId)
   refresh(input.projectId)
+  return { error: null }
+}
+
+export async function confirmReturn(projectId: string, expenseId: string, amount?: string) {
+  const supabase = await requireAdmin()
+  const patch: Database["public"]["Tables"]["expenses"]["Update"] = { return_confirmed: true }
+  if (amount != null) {
+    const cents = parseMoneyInput(amount)
+    if (cents == null || cents >= 0) return { error: "A return amount must stay negative" }
+    patch.amount = centsToMoney(cents)
+  } else {
+    const { data, error: loadError } = await supabase
+      .from("expenses")
+      .select("amount")
+      .eq("id", expenseId)
+      .maybeSingle()
+    if (loadError || !data) return { error: loadError?.message ?? "Expense not found" }
+    if (moneyToCents(data.amount) >= 0) return { error: "This amount is not negative" }
+  }
+  const { error } = await supabase.from("expenses").update(patch).eq("id", expenseId)
+  if (error) return { error: error.message }
+  if (amount != null) await syncDuplicateFlag(projectId, expenseId)
+  refresh(projectId)
   return { error: null }
 }
 

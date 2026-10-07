@@ -225,6 +225,7 @@ export type Database = {
           verification_status: VerificationStatus
           duplicate_of: string | null
           duplicate_confirmed: boolean
+          return_confirmed: boolean
           created_at: string
           updated_at: string
           created_by: string | null
@@ -261,6 +262,7 @@ export type Database = {
           verification_status?: VerificationStatus
           duplicate_of?: string | null
           duplicate_confirmed?: boolean
+          return_confirmed?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -297,6 +299,7 @@ export type Database = {
           verification_status?: VerificationStatus
           duplicate_of?: string | null
           duplicate_confirmed?: boolean
+          return_confirmed?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -402,6 +405,7 @@ export type Database = {
           verification_status: VerificationStatus
           duplicate_of: string | null
           duplicate_confirmed: boolean
+          return_confirmed: boolean
           created_at: string
           updated_at: string
           created_by: string | null

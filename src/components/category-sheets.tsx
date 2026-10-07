@@ -4,14 +4,15 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
-import { assignInvoiceNumber, clearDuplicate, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
+import { assignInvoiceNumber, clearDuplicate, confirmReturn, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { useExpenseSearch } from "@/components/expense-amount-search"
 import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
+import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, moneyToCents, parseMoneyInput, sumCents, amountOverBudget } from "@/lib/money"
+import { centsToMoney, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, sumCents, amountOverBudget } from "@/lib/money"
 import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
@@ -33,6 +34,8 @@ export function CategorySheets({
 }) {
   const router = useRouter()
   const [preview, setPreview] = useState<SheetRow | null>(null)
+  const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
+  const [amountReset, setAmountReset] = useState(0)
   const scoped = rows.filter((row) => mode !== "needs" || row.invoiceStatus === "not_invoiced")
   const sections = categories.map((category) => ({
     category,
@@ -64,19 +67,49 @@ export function CategorySheets({
     return () => window.clearTimeout(timer)
   }, [searchQuery, matchIds, activeIndex])
 
+  async function persistAmount(row: SheetRow, amount: string, success: string) {
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, amount })
+    if (result.error) toast.error(result.error)
+    else {
+      toast.success(success)
+      router.refresh()
+    }
+    return result.error == null
+  }
+
   async function saveAmount(row: SheetRow, value: string) {
     const cents = parseMoneyInput(value)
-    if (cents == null || cents < 0) {
+    if (cents == null) {
       toast.error("Enter an amount like 125.00")
+      setAmountReset((current) => current + 1)
       return
     }
     if (cents === moneyToCents(row.amount)) return
-    const result = await updateExpenseFields({ projectId, expenseId: row.id, amount: value })
+    const amount = centsToMoney(cents)
+    if (cents < 0 && !row.returnConfirmed) {
+      setReturnPrompt({ row, amount })
+      return
+    }
+    const saved = await persistAmount(row, amount, "Amount saved")
+    if (!saved) setAmountReset((current) => current + 1)
+  }
+
+  async function confirmStoredReturn(row: SheetRow, amount?: string) {
+    const result = await confirmReturn(projectId, row.id, amount)
     if (result.error) toast.error(result.error)
     else {
-      toast.success("Amount saved")
+      toast.success("Marked as a return")
+      setReturnPrompt(null)
       router.refresh()
     }
+  }
+
+  async function correctReturn(row: SheetRow, amount: string) {
+    const cents = parseMoneyInput(amount)
+    if (cents == null) return
+    const positive = centsToMoney(Math.abs(cents))
+    const saved = await persistAmount(row, positive, "Saved as a charge")
+    if (saved) setReturnPrompt(null)
   }
 
   async function saveInvoice(row: SheetRow, number: string) {
@@ -140,6 +173,9 @@ export function CategorySheets({
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
+          onConfirmReturn={(row) => void confirmStoredReturn(row)}
+          onCorrectReturn={(row) => void correctReturn(row, row.amount)}
+          amountReset={amountReset}
           allRows={rows}
           readOnly={readOnly}
         />
@@ -162,6 +198,9 @@ export function CategorySheets({
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
+          onConfirmReturn={(row) => void confirmStoredReturn(row)}
+          onCorrectReturn={(row) => void correctReturn(row, row.amount)}
+          amountReset={amountReset}
           allRows={rows}
           readOnly={readOnly}
         />
@@ -186,6 +225,17 @@ export function CategorySheets({
           </div>
         </div>
       ) : null}
+      {returnPrompt ? (
+        <ReturnConfirmDialog
+          amount={returnPrompt.amount}
+          onConfirm={() => void confirmStoredReturn(returnPrompt.row, returnPrompt.amount)}
+          onCorrect={() => void correctReturn(returnPrompt.row, returnPrompt.amount)}
+          onDismiss={() => {
+            setReturnPrompt(null)
+            setAmountReset((current) => current + 1)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -196,19 +246,21 @@ function AmountInput({
   onAmount,
   className,
   readOnly,
+  resetKey,
 }: {
   row: SheetRow
   highlighted: boolean
   onAmount: (row: SheetRow, value: string) => void
   className: string
   readOnly: boolean
+  resetKey: number
 }) {
   if (readOnly) {
     return <p className="text-right font-semibold tabular-nums">{formatMoney(row.amount)}</p>
   }
   return (
     <input
-      key={`${row.id}-${row.amount}`}
+      key={`${row.id}-${row.amount}-${resetKey}`}
       defaultValue={formatMoney(row.amount).replace("$", "")}
       aria-label={`Amount for ${row.vendor || "receipt"}`}
       inputMode="decimal"
@@ -242,6 +294,9 @@ function CategoryBlock({
   onCategory,
   onDelete,
   onConfirmDuplicate,
+  onConfirmReturn,
+  onCorrectReturn,
+  amountReset,
   allRows,
   readOnly,
 }: {
@@ -262,6 +317,9 @@ function CategoryBlock({
   onCategory: (row: SheetRow, categoryId: number) => void
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
+  onConfirmReturn: (row: SheetRow) => void
+  onCorrectReturn: (row: SheetRow) => void
+  amountReset: number
   allRows: SheetRow[]
   readOnly: boolean
 }) {
@@ -304,7 +362,7 @@ function CategoryBlock({
             <article
               key={row.id}
               data-expense-id={row.id}
-              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(!readOnly && isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
             >
               {!readOnly && isDuplicatePair(row, allRows) ? (
                 <DuplicateNotice
@@ -313,6 +371,13 @@ function CategoryBlock({
                   onConfirm={() => onConfirmDuplicate(row)}
                   onPreview={onPreview}
                   onDelete={onDelete}
+                />
+              ) : null}
+              {!readOnly && needsReturnConfirmation(row.amount, row.returnConfirmed) ? (
+                <ReturnNotice
+                  amount={row.amount}
+                  onConfirm={() => onConfirmReturn(row)}
+                  onCorrect={() => onCorrectReturn(row)}
                 />
               ) : null}
               <div className="flex items-start gap-3">
@@ -339,6 +404,7 @@ function CategoryBlock({
                       highlighted={matchIds.includes(row.id)}
                       onAmount={onAmount}
                       readOnly={readOnly}
+                      resetKey={amountReset}
                       className="h-11 w-36 shrink-0 rounded-lg border px-2 text-right text-base font-semibold tabular-nums"
                     />
                   </div>
@@ -496,9 +562,20 @@ function CategoryBlock({
                     </td>
                   </tr>
                 ) : null}
+                {!readOnly && needsReturnConfirmation(row.amount, row.returnConfirmed) ? (
+                  <tr className="bg-red-50 dark:bg-red-950/40">
+                    <td colSpan={tableColumns} className="px-3 py-2">
+                      <ReturnNotice
+                        amount={row.amount}
+                        onConfirm={() => onConfirmReturn(row)}
+                        onCorrect={() => onCorrectReturn(row)}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
                 <tr
                   data-expense-id={row.id}
-                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(!readOnly && isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
@@ -513,6 +590,7 @@ function CategoryBlock({
                       highlighted={matchIds.includes(row.id)}
                       onAmount={onAmount}
                       readOnly={readOnly}
+                      resetKey={amountReset}
                       className="h-9 w-36 rounded-lg border px-2 text-right text-sm tabular-nums"
                     />
                   </td>

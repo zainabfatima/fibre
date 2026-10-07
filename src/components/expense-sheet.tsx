@@ -10,10 +10,12 @@ import { toast } from "sonner"
 
 import {
   assignInvoiceNumber,
+  confirmReturn,
   linkExpensesToInvoice,
   setExpenseBillingStatus,
   updateExpenseFields,
 } from "@/app/actions/expenses"
+import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
@@ -21,6 +23,9 @@ import { formatCategory } from "@/lib/format"
 import {
   centsToMoney,
   formatMoney,
+  moneyToCents,
+  needsReturnConfirmation,
+  parseMoneyInput,
   sumCents,
 } from "@/lib/money"
 
@@ -38,6 +43,7 @@ export type SheetRow = {
   paymentMethod: string | null
   cardLast4: string | null
   duplicateOf: string | null
+  returnConfirmed: boolean
   thumbUrl: string | null
   invoiceId: string | null
   invoiceNumber: string | null
@@ -78,6 +84,8 @@ export function ExpenseSheet({
   const [grouped, setGrouped] = useState(false)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [preview, setPreview] = useState<SheetRow | null>(null)
+  const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
+  const [amountReset, setAmountReset] = useState(0)
   const parentRef = useRef<HTMLDivElement>(null)
 
   const filtered = useMemo(() => {
@@ -156,14 +164,52 @@ export function ExpenseSheet({
     ? "grid-cols-[28px_36px_96px_140px_minmax(0,1fr)_180px_96px_72px_110px_120px_110px]"
     : "grid-cols-[36px_96px_140px_minmax(0,1fr)_180px_96px_72px]"
 
-  async function saveAmount(row: SheetRow, value: string) {
+  async function persistAmount(row: SheetRow, amount: string, success: string) {
     const result = await updateExpenseFields({
       projectId,
       expenseId: row.id,
-      amount: value,
+      amount,
     })
     if (result.error) toast.error(result.error)
-    else router.refresh()
+    else {
+      toast.success(success)
+      router.refresh()
+    }
+    return result.error == null
+  }
+
+  async function saveAmount(row: SheetRow, value: string) {
+    const cents = parseMoneyInput(value)
+    if (cents == null) {
+      toast.error("Enter an amount like 125.00")
+      setAmountReset((current) => current + 1)
+      return
+    }
+    if (cents === moneyToCents(row.amount)) return
+    const amount = centsToMoney(cents)
+    if (cents < 0 && !row.returnConfirmed) {
+      setReturnPrompt({ row, amount })
+      return
+    }
+    const saved = await persistAmount(row, amount, "Amount saved")
+    if (!saved) setAmountReset((current) => current + 1)
+  }
+
+  async function confirmStoredReturn(row: SheetRow, amount?: string) {
+    const result = await confirmReturn(projectId, row.id, amount)
+    if (result.error) toast.error(result.error)
+    else {
+      toast.success("Marked as a return")
+      setReturnPrompt(null)
+      router.refresh()
+    }
+  }
+
+  async function correctStoredReturn(row: SheetRow, amount: string) {
+    const cents = parseMoneyInput(amount)
+    if (cents == null) return
+    const saved = await persistAmount(row, centsToMoney(Math.abs(cents)), "Saved as a charge")
+    if (saved) setReturnPrompt(null)
   }
 
   async function saveCategory(row: SheetRow, value: string) {
@@ -307,6 +353,13 @@ export function ExpenseSheet({
         <ul className="grid gap-3 md:hidden">
           {sorted.map((item) => (
             <li key={item.id} className="grid gap-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10">
+              {needsReturnConfirmation(item.amount, item.returnConfirmed) ? (
+                <ReturnNotice
+                  amount={item.amount}
+                  onConfirm={() => void confirmStoredReturn(item)}
+                  onCorrect={() => void correctStoredReturn(item, item.amount)}
+                />
+              ) : null}
               <div className="flex items-start gap-3">
                 <button type="button" onClick={() => setPreview(item)} className="h-14 w-14 shrink-0 overflow-hidden rounded border border-border">
                   {item.thumbUrl ? (
@@ -359,7 +412,7 @@ export function ExpenseSheet({
               <label className="grid gap-1 text-xs">
                 Amount
                 <input
-                  key={`${item.id}-${item.amount}-mobile`}
+                  key={`${item.id}-${item.amount}-mobile-${amountReset}`}
                   defaultValue={formatMoney(item.amount).replace("$", "")}
                   onBlur={(event) => void saveAmount(item, event.target.value)}
                   inputMode="decimal"
@@ -417,6 +470,18 @@ export function ExpenseSheet({
             </li>
           ))}
         </ul>
+        <div className="hidden gap-2 md:grid">
+          {sorted
+            .filter((item) => needsReturnConfirmation(item.amount, item.returnConfirmed))
+            .map((item) => (
+              <ReturnNotice
+                key={item.id}
+                amount={item.amount}
+                onConfirm={() => void confirmStoredReturn(item)}
+                onCorrect={() => void correctStoredReturn(item, item.amount)}
+              />
+            ))}
+        </div>
         <div className="hidden min-h-0 overflow-hidden rounded-xl ring-1 ring-foreground/10 md:block">
           <div className={`grid ${gridClass} gap-2 border-b border-border bg-card px-2 py-2 text-xs font-medium sticky top-0`}>
             {invoiceTracking ? <span /> : null}
@@ -491,7 +556,7 @@ export function ExpenseSheet({
                         ))}
                       </select>
                       <input
-                        key={`${item.id}-${item.amount}`}
+                        key={`${item.id}-${item.amount}-${amountReset}`}
                         defaultValue={formatMoney(item.amount).replace("$", "")}
                         onBlur={(event) => void saveAmount(item, event.target.value)}
                         className="h-8 rounded-lg border border-input bg-transparent px-2 text-right text-sm tabular-nums"
@@ -588,6 +653,17 @@ export function ExpenseSheet({
             </a>
           </div>
         </div>
+      ) : null}
+      {returnPrompt ? (
+        <ReturnConfirmDialog
+          amount={returnPrompt.amount}
+          onConfirm={() => void confirmStoredReturn(returnPrompt.row, returnPrompt.amount)}
+          onCorrect={() => void correctStoredReturn(returnPrompt.row, returnPrompt.amount)}
+          onDismiss={() => {
+            setReturnPrompt(null)
+            setAmountReset((current) => current + 1)
+          }}
+        />
       ) : null}
 
     </div>
