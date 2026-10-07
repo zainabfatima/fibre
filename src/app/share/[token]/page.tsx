@@ -6,7 +6,7 @@ import { CategoryChart } from "@/components/category-chart"
 import { StatusBadge } from "@/components/status-badge"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, moneyToCents, sumCents } from "@/lib/money"
+import { centsToMoney, formatMoney, moneyToCents, sumCents, amountOverBudget } from "@/lib/money"
 
 export const dynamic = "force-dynamic"
 
@@ -165,17 +165,21 @@ function CategorySection({
   thumbs: Map<string | null, string | null>
   invoiceTracking: boolean
 }) {
-  const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
+  const spentCents = sumCents(rows.map((row) => row.amount))
+  const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
+  const overCents = amountOverBudget(budget, spentCents)
+  const overBy = overCents == null ? null : formatMoney(centsToMoney(overCents))
+  const overClass = overBy ? "border-l-red-600 bg-red-50 ring-red-300" : "border-l-primary bg-card ring-foreground/10"
   if (rows.length === 0) {
     return (
       <>
         <div className="flex items-start justify-between gap-3 border-b border-border/70 px-1 py-2.5 md:hidden">
-          <CategoryBudgetHeading title={title} budget={budgetText} spent={total} compact heading="h2" />
+          <CategoryBudgetHeading title={title} budget={budgetText} spent={total} overBy={overBy} compact heading="h2" />
         </div>
-        <section className="hidden overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:block">
-          <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-2">
-            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} heading="h2" />
+        <section className={`hidden overflow-hidden rounded-xl border-l-4 ring-1 md:block ${overClass}`}>
+          <header className={`flex items-start justify-between gap-3 border-b px-3 py-2 ${overBy ? "border-red-200 bg-red-100" : "border-border bg-muted"}`}>
+            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} overBy={overBy} heading="h2" />
           </header>
           <p className="px-3 py-3 text-sm text-muted-foreground">No expenses</p>
         </section>
@@ -183,9 +187,9 @@ function CategorySection({
     )
   }
   return (
-    <section className="mt-2 overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:mt-0">
-      <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-3">
-        <CategoryBudgetHeading title={title} budget={budgetText} spent={total} heading="h2" />
+    <section className={`mt-2 overflow-hidden rounded-xl border-l-4 ring-1 md:mt-0 ${overClass}`}>
+      <header className={`flex items-start justify-between gap-3 border-b px-3 py-3 ${overBy ? "border-red-200 bg-red-100" : "border-border bg-muted"}`}>
+        <CategoryBudgetHeading title={title} budget={budgetText} spent={total} overBy={overBy} heading="h2" />
       </header>
         <>
         <div className="grid md:hidden">
@@ -233,8 +237,9 @@ function CategorySection({
               </article>
             )
           })}
-          <p className="bg-muted/60 px-3 py-3 text-sm font-semibold tabular-nums">
+          <p className={`px-3 py-3 text-sm font-semibold tabular-nums ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
             {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+            {overBy ? <span className="mt-1 block font-medium text-red-700">Over budget by {overBy}</span> : null}
           </p>
         </div>
         <div className="hidden overflow-x-auto md:block">
@@ -300,12 +305,14 @@ function CategorySection({
                   </tr>
                 )
               })}
-              <tr className="bg-muted/60 font-medium">
+              <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
                 <td className="px-3 py-2" colSpan={2}>
                   Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
-                <td colSpan={invoiceTracking ? 4 : 1} />
+                <td className="px-3 py-2" colSpan={invoiceTracking ? 4 : 1}>
+                  {overBy ? <span className="font-medium text-red-700">Over budget by {overBy}</span> : null}
+                </td>
               </tr>
             </tbody>
           </table>

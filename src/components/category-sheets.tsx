@@ -11,7 +11,7 @@ import { useExpenseSearch } from "@/components/expense-amount-search"
 import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, moneyToCents, parseMoneyInput, sumCents } from "@/lib/money"
+import { centsToMoney, formatMoney, moneyToCents, parseMoneyInput, sumCents, amountOverBudget } from "@/lib/money"
 import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
@@ -265,20 +265,24 @@ function CategoryBlock({
   allRows: SheetRow[]
   readOnly: boolean
 }) {
-  const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
+  const spentCents = sumCents(rows.map((row) => row.amount))
+  const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
+  const overCents = amountOverBudget(budget, spentCents)
+  const overBy = overCents == null ? null : formatMoney(centsToMoney(overCents))
+  const overClass = overBy ? "border-l-red-600 bg-red-50 ring-red-300 dark:bg-red-950/30" : "border-l-primary bg-card ring-foreground/10"
   if (rows.length === 0) {
     return (
       <>
         <div className="border-b border-border/70 px-1 py-2.5 md:hidden">
           <div className="flex items-start justify-between gap-3">
-            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} compact />
+            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} overBy={overBy} compact />
           </div>
           <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} fullWidth />
         </div>
-        <section className="hidden overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:block">
-          <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-2">
-            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} />
+        <section className={`hidden overflow-hidden rounded-xl border-l-4 ring-1 md:block ${overClass}`}>
+          <header className={`flex items-start justify-between gap-3 border-b px-3 py-2 ${overBy ? "border-red-200 bg-red-100" : "border-border bg-muted"}`}>
+            <CategoryBudgetHeading title={title} budget={budgetText} spent={total} overBy={overBy} />
           </header>
           <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
             <p className="text-sm text-muted-foreground">No expenses</p>
@@ -289,9 +293,9 @@ function CategoryBlock({
     )
   }
   return (
-    <section className="mt-2 overflow-hidden rounded-xl border-l-4 border-l-primary bg-card ring-1 ring-foreground/10 md:mt-0">
-      <header className="flex items-start justify-between gap-3 border-b border-border bg-muted px-3 py-3">
-        <CategoryBudgetHeading title={title} budget={budgetText} spent={total} />
+    <section className={`mt-2 overflow-hidden rounded-xl border-l-4 ring-1 md:mt-0 ${overClass}`}>
+      <header className={`flex items-start justify-between gap-3 border-b px-3 py-3 ${overBy ? "border-red-200 bg-red-100" : "border-border bg-muted"}`}>
+        <CategoryBudgetHeading title={title} budget={budgetText} spent={total} overBy={overBy} />
       </header>
       <>
         <div className="grid md:hidden">
@@ -440,6 +444,7 @@ function CategoryBlock({
           <div className="bg-muted/60 px-3 py-3">
             <p className="text-sm font-semibold tabular-nums">
               {budgetText ? `Budget ${budgetText} · Spent ${total}` : `Spent ${total}`}
+              {overBy ? <span className="mt-1 block font-medium text-red-700">Over budget by {overBy}</span> : null}
             </p>
             <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} fullWidth />
           </div>
@@ -602,12 +607,13 @@ function CategoryBlock({
                 </tr>
                 </Fragment>
               ))}
-              <tr className="bg-muted/60 font-medium">
+              <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
                 <td className="px-3 py-2" colSpan={2}>
                   Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
                 <td className="px-3 py-2" colSpan={(readOnly ? 1 : 3) + (invoiceTracking ? 3 : 0)}>
+                  {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
                   <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
                 </td>
               </tr>

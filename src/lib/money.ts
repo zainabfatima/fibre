@@ -75,3 +75,14 @@ export function parseMoneyInput(value: string): number | null {
 export function sumCents(values: Array<string | number>): number {
   return values.reduce<number>((total, value) => total + moneyToCents(value), 0)
 }
+
+/** Cents spent above the budget, or null when spending is within the budget. */
+export function amountOverBudget(
+  budget: string | number | null | undefined,
+  spentCents: number,
+): number | null {
+  if (budget == null || budget === "") return null
+  const budgetCents = moneyToCents(budget)
+  if (spentCents <= budgetCents) return null
+  return spentCents - budgetCents
+}
