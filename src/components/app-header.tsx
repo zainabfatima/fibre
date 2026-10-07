@@ -1,19 +1,24 @@
+"use client"
+
 import Link from "next/link"
 
 import { SignOutButton } from "@/components/auth/sign-out-button"
 import { BrandLogo } from "@/components/brand-logo"
+import { useZainab } from "@/components/view-mode"
+import { withZainab } from "@/lib/zainab-path"
 
 export function AppHeader() {
+  const zainab = useZainab()
   return (
     <header className="sticky top-0 z-30 border-b-4 border-primary bg-card pt-[env(safe-area-inset-top)] shadow-sm">
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 px-3 py-2 sm:gap-3 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
-          <BrandLogo href="/" />
+          <BrandLogo href={withZainab("/", zainab)} />
           <p className="min-w-0 text-[15px] font-semibold leading-tight break-words text-foreground sm:text-lg">
             Projects Expense Tracker
           </p>
           <nav className="flex min-w-0 flex-wrap items-center gap-1">
-            <Link href="/settings/categories" className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
+            <Link href={withZainab("/settings/categories", zainab)} className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
               Categories
             </Link>
           </nav>

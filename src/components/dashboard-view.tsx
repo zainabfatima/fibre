@@ -1,6 +1,10 @@
+"use client"
+
 import Link from "next/link"
 
+import { useZainab } from "@/components/view-mode"
 import { formatMoney } from "@/lib/money"
+import { withZainab } from "@/lib/zainab-path"
 
 export type DashboardProject = {
   id: string
@@ -13,12 +17,13 @@ export type DashboardProject = {
 }
 
 export function DashboardView({ projects }: { projects: DashboardProject[] }) {
+  const zainab = useZainab()
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
         <Link
-          href="/projects/new"
+          href={withZainab("/projects/new", zainab)}
           className="rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground"
         >
           New project
@@ -34,7 +39,7 @@ export function DashboardView({ projects }: { projects: DashboardProject[] }) {
           {projects.map((project) => (
             <Link
               key={project.id}
-              href={`/projects/${project.id}`}
+              href={withZainab(`/projects/${project.id}`, zainab)}
               className="rounded-xl border-l-4 border-l-primary bg-card p-4 ring-1 ring-foreground/15 hover:ring-primary/40"
             >
               <h2 className="font-medium break-words">{project.name}</h2>

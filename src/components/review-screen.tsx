@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { formatCategory } from "@/lib/format"
 import { centsToMoney, formatMoney, parseMoneyInput, sumCents } from "@/lib/money"
+import { withZainab } from "@/lib/zainab-path"
+import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string }
 type Line = { description: string; amount: string; categoryId: number | null }
@@ -90,6 +92,7 @@ export function ReviewScreen({
           { description: "", amount: "", categoryId: null },
         ],
   )
+  const zainab = useZainab()
   const index = queue.indexOf(expenseId)
   const low = confidence != null && confidence < 0.7
   const filtered = categories.filter((category) =>
@@ -98,10 +101,10 @@ export function ReviewScreen({
 
   function go(nextId: string | undefined) {
     if (!nextId) {
-      router.push(`/projects/${projectId}`)
+      router.push(withZainab(`/projects/${projectId}`, zainab))
       return
     }
-    router.push(`/projects/${projectId}/review?expense=${nextId}`)
+    router.push(withZainab(`/projects/${projectId}/review?expense=${nextId}`, zainab))
   }
 
   async function verify() {

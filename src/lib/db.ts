@@ -4,10 +4,11 @@ import { redirect } from "next/navigation"
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getSessionToken } from "@/lib/session"
+import { requestIsZainab } from "@/lib/zainab-request"
 
 export async function requireAdmin() {
   const token = await getSessionToken()
-  if (!token) redirect("/login")
+  if (!token) redirect((await requestIsZainab()) ? "/zainab/login" : "/login")
   return createAdminClient()
 }
 

@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { formatCategory } from "@/lib/format"
 import { centsToMoney, formatMoney, moneyToCents, parseMoneyInput, sumCents } from "@/lib/money"
+import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
 
@@ -137,6 +138,7 @@ export function CategorySheets({
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
+          allRows={rows}
         />
       ))}
       {uncategorized.length > 0 ? (
@@ -157,6 +159,7 @@ export function CategorySheets({
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
+          allRows={rows}
         />
       ) : null}
       {preview ? (
@@ -230,6 +233,7 @@ function CategoryBlock({
   onCategory,
   onDelete,
   onConfirmDuplicate,
+  allRows,
 }: {
   title: string
   budget?: string | number | null
@@ -248,6 +252,7 @@ function CategoryBlock({
   onCategory: (row: SheetRow, categoryId: number) => void
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
+  allRows: SheetRow[]
 }) {
   const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -283,10 +288,16 @@ function CategoryBlock({
             <article
               key={row.id}
               data-expense-id={row.id}
-              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(Boolean(row.duplicateOf), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
             >
-              {row.duplicateOf ? (
-                <DuplicateNotice row={row} onConfirm={() => onConfirmDuplicate(row)} />
+              {isDuplicatePair(row, allRows) ? (
+                <DuplicateNotice
+                  row={row}
+                  others={pairedReceipts(row, allRows)}
+                  onConfirm={() => onConfirmDuplicate(row)}
+                  onPreview={onPreview}
+                  onDelete={onDelete}
+                />
               ) : null}
               <div className="flex items-start gap-3">
                 <button
@@ -441,16 +452,22 @@ function CategoryBlock({
             <tbody>
               {rows.map((row) => (
                 <Fragment key={row.id}>
-                {row.duplicateOf ? (
+                {isDuplicatePair(row, allRows) ? (
                   <tr className="bg-red-50 dark:bg-red-950/40">
                     <td colSpan={invoiceTracking ? 9 : 6} className="px-3 py-2">
-                      <DuplicateNotice row={row} onConfirm={() => onConfirmDuplicate(row)} />
+                      <DuplicateNotice
+                        row={row}
+                        others={pairedReceipts(row, allRows)}
+                        onConfirm={() => onConfirmDuplicate(row)}
+                        onPreview={onPreview}
+                        onDelete={onDelete}
+                      />
                     </td>
                   </tr>
                 ) : null}
                 <tr
                   data-expense-id={row.id}
-                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(Boolean(row.duplicateOf), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
@@ -574,7 +591,9 @@ function CategoryPdfLink({
   needs: boolean
   fullWidth?: boolean
 }) {
+  const zainab = useZainab()
   const href = `/api/packet/${projectId}/${categoryKey}${needs ? "?needs=1" : ""}`
+  if (!zainab) return null
   return (
     <a
       href={href}
@@ -592,39 +611,136 @@ function rowSurface(duplicate: boolean, matched: boolean, active: boolean) {
   return expenseHighlight(matched, active)
 }
 
-function DuplicateNotice({ row, onConfirm }: { row: SheetRow; onConfirm: () => void }) {
-  const when = [row.date, row.receiptTime].filter(Boolean).join(" ")
-  const detail = [
-    row.receiptNumber ? `#${row.receiptNumber}` : null,
-    when || null,
-    formatMoney(row.amount),
-    row.paymentMethod,
-    row.cardLast4 ? `card ${row.cardLast4}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ")
+function pairedReceipts(row: SheetRow, allRows: SheetRow[]) {
+  if (row.duplicateOf) {
+    const match = allRows.find((item) => item.id === row.duplicateOf)
+    return match ? [match] : []
+  }
+  return allRows.filter((item) => item.duplicateOf === row.id)
+}
+
+function isDuplicatePair(row: SheetRow, allRows: SheetRow[]) {
+  return Boolean(row.duplicateOf) || pairedReceipts(row, allRows).length > 0
+}
+
+function showReceiptInList(id: string) {
+  const nodes = document.querySelectorAll<HTMLElement>(`[data-expense-id="${CSS.escape(id)}"]`)
+  const visible = Array.from(nodes).find((node) => node.getClientRects().length > 0)
+  visible?.scrollIntoView({ behavior: "smooth", block: "center" })
+}
+
+function DuplicateNotice({
+  row,
+  others,
+  onConfirm,
+  onPreview,
+  onDelete,
+}: {
+  row: SheetRow
+  others: SheetRow[]
+  onConfirm: () => void
+  onPreview: (row: SheetRow) => void
+  onDelete: (row: SheetRow) => void
+}) {
+  const isCopy = Boolean(row.duplicateOf)
   return (
-    <div className="mb-3 grid gap-2 rounded-lg bg-red-100 p-3 text-sm text-red-950 dark:bg-red-950 dark:text-red-50 md:mb-0">
-      <p className="font-medium">Possible duplicate</p>
-      <p>Receipt number, date, time, amount, payment method, and card ending match another receipt. {detail}</p>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={onConfirm}
-          className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
-        >
-          Not a duplicate
-        </button>
-        <label className="inline-flex min-h-11 items-center gap-2">
-          <input
-            type="checkbox"
-            onChange={(event) => {
-              if (event.target.checked) onConfirm()
-            }}
-            className="size-5"
-          />
-          Confirmed
-        </label>
+    <div className="mb-3 grid gap-3 rounded-lg bg-red-100 p-3 text-sm text-red-950 dark:bg-red-950 dark:text-red-50 md:mb-0">
+      <div>
+        <p className="font-medium">Possible duplicate</p>
+        <p>
+          {isCopy
+            ? "This receipt matches the other copy below. Compare them, then delete the extra one."
+            : "Another receipt matches this one. Compare them, then delete the extra copy."}
+        </p>
+      </div>
+      {others.length === 0 ? <p>The other copy is no longer in this project.</p> : null}
+      {others.map((other) => (
+        <OtherReceipt key={other.id} row={other} onPreview={onPreview} onDelete={onDelete} />
+      ))}
+      {isCopy ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
+          >
+            Not a duplicate
+          </button>
+          <label className="inline-flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              onChange={(event) => {
+                if (event.target.checked) onConfirm()
+              }}
+              className="size-5"
+            />
+            Confirmed
+          </label>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function OtherReceipt({
+  row,
+  onPreview,
+  onDelete,
+}: {
+  row: SheetRow
+  onPreview: (row: SheetRow) => void
+  onDelete: (row: SheetRow) => void
+}) {
+  const category =
+    row.categoryCode != null && row.categoryName
+      ? formatCategory(row.categoryCode, row.categoryName)
+      : "Uncategorized"
+  const when = [row.date, row.receiptTime].filter(Boolean).join(" ")
+  return (
+    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 rounded-lg bg-white/80 p-2 text-foreground dark:bg-black/20">
+      <button
+        type="button"
+        onClick={() => onPreview(row)}
+        className="grid h-16 w-16 place-items-center overflow-hidden rounded-lg border border-border bg-muted text-[10px]"
+      >
+        {row.thumbUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={row.thumbUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          "Receipt"
+        )}
+      </button>
+      <div className="min-w-0">
+        <p className="font-medium">Other copy</p>
+        <p className="break-words">{row.vendor || "Receipt"}</p>
+        <p className="text-muted-foreground">
+          {[when || "No date", formatMoney(row.amount), category, row.receiptNumber ? `#${row.receiptNumber}` : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onPreview(row)}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input bg-background px-3 text-sm font-medium"
+          >
+            View receipt
+          </button>
+          <button
+            type="button"
+            onClick={() => showReceiptInList(row.id)}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input bg-background px-3 text-sm font-medium"
+          >
+            Show in list
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(row)}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input bg-background px-3 text-sm font-medium text-destructive"
+          >
+            Delete this copy
+          </button>
+        </div>
       </div>
     </div>
   )

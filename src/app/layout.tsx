@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 
 import { AppProviders } from "@/components/providers";
 import "./globals.css";
@@ -28,7 +29,9 @@ export const metadata: Metadata = {
   description: "Construction project expenses, receipts, and invoices.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const headerList = await headers()
+  const zainab = headerList.get("x-fibre-view") === "zainab"
   return (
     <html
       lang="en"
@@ -36,7 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
-        <AppProviders>{children}</AppProviders>
+        <AppProviders zainab={zainab}>{children}</AppProviders>
       </body>
     </html>
   );

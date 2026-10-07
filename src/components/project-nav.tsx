@@ -3,6 +3,9 @@
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 
+import { stripZainab, withZainab } from "@/lib/zainab-path"
+import { useZainab } from "@/components/view-mode"
+
 export function ProjectNav({
   projectId,
   invoiceTracking,
@@ -12,8 +15,9 @@ export function ProjectNav({
   invoiceTracking: boolean
   pendingReviews?: number
 }) {
-  const pathname = usePathname()
+  const pathname = stripZainab(usePathname())
   const search = useSearchParams()
+  const zainab = useZainab()
   const base = `/projects/${projectId}`
   const links = [
     { key: "expenses", href: "", label: "Expenses" },
@@ -31,13 +35,14 @@ export function ProjectNav({
   return (
     <nav className="flex touch-pan-x gap-1 overflow-x-auto overscroll-x-contain border-b border-border bg-background px-2 [-ms-overflow-style:none] [scrollbar-width:none] sm:px-4 [&::-webkit-scrollbar]:hidden">
       {links.map((link) => {
-        const href = `${base}${link.href}`
+        const logicalHref = `${base}${link.href}`
+        const href = withZainab(logicalHref, zainab)
         const active =
           link.key === "needs"
             ? pathname === base && search.get("tab") === "needs"
             : link.key === "expenses"
               ? pathname === base && search.get("tab") !== "needs"
-              : pathname === href || pathname.startsWith(`${href}/`)
+              : pathname === logicalHref || pathname.startsWith(`${logicalHref}/`)
         return (
           <Link
             key={link.key}

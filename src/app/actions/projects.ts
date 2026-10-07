@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
+
+import { requestIsZainab } from "@/lib/zainab-request"
 import { z } from "zod"
 
 import { requireAdmin } from "@/lib/db"
@@ -65,7 +67,8 @@ export async function createProject(
     .single()
   if (error || !data) return { error: error?.message ?? "Could not create the project" }
   revalidatePath("/")
-  redirect(`/projects/${data.id}`)
+  const prefix = (await requestIsZainab()) ? "/zainab" : ""
+  redirect(`${prefix}/projects/${data.id}`)
 }
 
 export async function updateProject(

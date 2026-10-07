@@ -8,6 +8,8 @@ import { saveScannedReceipt } from "@/app/actions/expenses"
 import { ReceiptScanner } from "@/components/scanner/receipt-scanner"
 import { formatCategory } from "@/lib/format"
 import type { ScanResult } from "@/lib/scanner/types"
+import { withZainab } from "@/lib/zainab-path"
+import { useZainab } from "@/components/view-mode"
 
 type Item = {
   id: string
@@ -40,6 +42,7 @@ export function UploadQueue({
   categories: CategoryOption[]
 }) {
   const router = useRouter()
+  const zainab = useZainab()
   const storageKey = `fibre-upload-category:${projectId}`
   const [items, setItems] = useState<Item[]>([])
   const [running, setRunning] = useState(false)
@@ -160,7 +163,7 @@ export function UploadQueue({
       return
     }
     if (!hadProblem) {
-      router.push(`/projects/${projectId}/review?expense=${firstReady}`)
+      router.push(withZainab(`/projects/${projectId}/review?expense=${firstReady}`, zainab))
       return
     }
     setReviewId(firstReady)
@@ -271,7 +274,7 @@ export function UploadQueue({
       {savedNote ? <p className="text-sm text-muted-foreground">{savedNote}</p> : null}
       {reviewId ? (
         <Link
-          href={`/projects/${projectId}/review?expense=${reviewId}`}
+          href={withZainab(`/projects/${projectId}/review?expense=${reviewId}`, zainab)}
           className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
         >
           Open Review
@@ -286,7 +289,7 @@ export function UploadQueue({
                 <p className="text-muted-foreground">{item.detail || item.status}</p>
               </div>
               {item.expenseId ? (
-                <Link href={`/projects/${projectId}/review?expense=${item.expenseId}`} className="underline">
+                <Link href={withZainab(`/projects/${projectId}/review?expense=${item.expenseId}`, zainab)} className="underline">
                   Review
                 </Link>
               ) : null}
