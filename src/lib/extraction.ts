@@ -59,7 +59,18 @@ export function stripJsonFences(text: string) {
 
 export function parseExtraction(text: string) {
   const raw = stripJsonFences(text)
-  const parsed = extractionSchema.safeParse(JSON.parse(raw))
+  const start = raw.indexOf("{")
+  const end = raw.lastIndexOf("}")
+  const jsonText = start >= 0 && end > start ? raw.slice(start, end + 1) : raw
+  const loosened = jsonText.replace(
+    /"(total_amount_paid|subtotal|tax|amount)"\s*:\s*"([^"]*)"/g,
+    (_match, key: string, value: string) => {
+      const cleaned = value.replace(/[$,\s]/g, "")
+      if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return `"${key}": null`
+      return `"${key}": ${cleaned}`
+    },
+  )
+  const parsed = extractionSchema.safeParse(JSON.parse(loosened))
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map((issue) => issue.message).join("; "))
   }

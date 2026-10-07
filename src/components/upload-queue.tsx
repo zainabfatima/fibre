@@ -130,10 +130,19 @@ export function UploadQueue({
           })
           continue
         }
-        update(id, { status: "extracting", detail: "Reading the receipt", expenseId: uploaded.id })
-        await readReceipt(uploaded.id, lockedCategory)
+        update(id, { status: "extracting", detail: "Reading the amount", expenseId: uploaded.id })
+        const extracted = await readReceipt(uploaded.id, lockedCategory)
+        if (extracted.ok === false) {
+          hadProblem = true
+          update(id, {
+            status: "error",
+            detail: extracted.error || "Saved for review. The amount still needs a look.",
+            expenseId: uploaded.id,
+          })
+        } else {
+          setItems((current) => current.filter((item) => item.id !== id))
+        }
         firstReady = firstReady ?? uploaded.id
-        setItems((current) => current.filter((item) => item.id !== id))
       } catch (cause) {
         hadProblem = true
         update(id, { status: "error", detail: cause instanceof Error ? cause.message : "Upload failed" })

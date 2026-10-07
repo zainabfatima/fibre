@@ -1,6 +1,7 @@
 import "server-only"
 
 import Anthropic from "@anthropic-ai/sdk"
+import { revalidatePath } from "next/cache"
 
 import { vendorsSimilar, shiftIsoDate } from "@/lib/duplicates"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -9,8 +10,23 @@ import {
   categoryPromptList,
   extractionSystemPrompt,
   parseExtraction,
+  type Extraction,
 } from "@/lib/extraction"
 import { getServerEnv } from "@/lib/env"
+
+type ReceiptMedia =
+  | {
+      type: "image"
+      source: {
+        type: "base64"
+        media_type: "image/jpeg" | "image/png" | "image/webp"
+        data: string
+      }
+    }
+  | {
+      type: "document"
+      source: { type: "base64"; media_type: "application/pdf"; data: string }
+    }
 
 function mediaType(path: string, bytes: Buffer) {
   if (path.endsWith(".pdf") || bytes.subarray(0, 4).toString() === "%PDF") {
@@ -55,101 +71,122 @@ export async function extractExpense(
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
   const system = extractionSystemPrompt(categoryPromptList(categories))
 
-  const instruction =
+  const requested = options?.categoryId
+  const manualRequested =
+    typeof requested === "number" && Number.isInteger(requested) && requested > 0
+  const manualCategoryId = manualRequested
+    ? (categories.find((category) => category.id === requested)?.id ?? expense.category_id)
+    : null
+  const instructionBase =
     (expense.page_count ?? 1) > 1 || type === "application/pdf"
       ? "These pages belong to ONE receipt or invoice. Use the FINAL total from the page that says Total, Amount Due, or Balance Due, usually the last page, not a page subtotal. Combine line items from all pages."
       : "Extract this receipt."
+  const instruction = manualRequested
+    ? `${instructionBase} The category is already chosen by the user. Do not skip the receipt total. Return vendor, date, and total_amount_paid from this black-and-white receipt. total_amount_paid is the final amount paid whenever that total is visible.`
+    : instructionBase
   const embedded = type === "application/pdf" ? extractEmbeddedImages(bytes) : []
-  const content =
-    embedded.length > 0
+  const imageMedia: ReceiptMedia[] = embedded.slice(0, 20).map((image) => ({
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: image.mediaType,
+      data: image.data,
+    },
+  }))
+  const fileMedia: ReceiptMedia[] =
+    type === "application/pdf"
       ? [
-          ...embedded.slice(0, 20).map((image) => ({
-            type: "image" as const,
+          {
+            type: "document",
             source: {
-              type: "base64" as const,
-              media_type: image.mediaType,
-              data: image.data,
+              type: "base64",
+              media_type: "application/pdf",
+              data: bytes.toString("base64"),
             },
-          })),
-          { type: "text" as const, text: instruction },
+          },
         ]
-      : type === "application/pdf"
-        ? [
-            {
-              type: "document" as const,
-              source: {
-                type: "base64" as const,
-                media_type: "application/pdf" as const,
-                data: bytes.toString("base64"),
-              },
+      : [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: type,
+              data: bytes.toString("base64"),
             },
-            { type: "text" as const, text: instruction },
-          ]
-        : [
-            {
-              type: "image" as const,
-              source: {
-                type: "base64" as const,
-                media_type: type,
-                data: bytes.toString("base64"),
-              },
-            },
-            { type: "text" as const, text: instruction },
-          ]
+          },
+        ]
+  const primary = imageMedia.length > 0 ? imageMedia : fileMedia
+  const alternate = imageMedia.length > 0 && type === "application/pdf" ? fileMedia : null
+  const amountPrompt =
+    "Read this black-and-white receipt. Return ONLY JSON: {\"vendor\":\"\",\"date\":\"YYYY-MM-DD or null\",\"total_amount_paid\":null}. total_amount_paid is the final amount paid (Total, Amount Due, or Balance Due). Use null if no total is visible. Do not guess a number."
 
   let rawText = ""
   try {
-    const response = await client.messages.create({
-      model: env.ANTHROPIC_MODEL,
-      max_tokens: 4000,
-      system,
-      messages: [{ role: "user", content }],
-    })
-    rawText = response.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n")
-    const extracted = parseExtraction(rawText)
+    const firstText = await askClaude(client, env.ANTHROPIC_MODEL, system, primary, instruction)
+    rawText = firstText
+    let extracted: Extraction | null = tryParseExtraction(firstText)
+    let paidCents = paidCentsFrom(extracted) ?? salvagePaidCents(firstText)
+    if (paidCents == null) {
+      try {
+        const retryText = await askClaude(
+          client,
+          env.ANTHROPIC_MODEL,
+          amountPrompt,
+          alternate ?? primary,
+          "Extract the final amount paid.",
+          800,
+        )
+        rawText = `${rawText}\n${retryText}`
+        const retried = tryParseExtraction(retryText)
+        const retryCents = paidCentsFrom(retried) ?? salvagePaidCents(retryText)
+        if (paidCents == null && retryCents != null) {
+          paidCents = retryCents
+          extracted = preferExtraction(retried, extracted)
+        } else {
+          extracted = preferExtraction(extracted, retried)
+        }
+      } catch {
+        // Keep the first read. A failed second look must not drop a total already found.
+      }
+    }
     const byCode = new Map(categories.map((category) => [category.code, category.id]))
-    const suggestedIds = extracted.suggested_categories
+    const suggestedIds = (extracted?.suggested_categories ?? [])
       .map((item) => byCode.get(item.code))
       .filter((id): id is number => typeof id === "number")
       .slice(0, 3)
-    const requested = options?.categoryId
-    const manualRequested =
-      typeof requested === "number" && Number.isInteger(requested) && requested > 0
-    const manualCategoryId = manualRequested
-      ? (categories.find((category) => category.id === requested)?.id ?? expense.category_id)
-      : null
-    const amount =
-      extracted.total_amount_paid == null
-        ? null
-        : centsToMoney(moneyToCents(extracted.total_amount_paid.toFixed(2)))
+    const description =
+      extracted?.line_items
+        .map((item) => item.description)
+        .filter(Boolean)
+        .slice(0, 3)
+        .join("; ") || null
 
     const { error: updateError } = await supabase
       .from("expenses")
       .update({
-        vendor: extracted.vendor?.trim() || null,
-        expense_date: extracted.date,
-        amount: amount ?? expense.amount,
-        receipt_number: extracted.receipt_number?.trim() || null,
-        payment_method: extracted.payment_method?.trim() || null,
-        description: extracted.line_items
-          .map((item) => item.description)
-          .filter(Boolean)
-          .slice(0, 3)
-          .join("; ") || null,
+        vendor: extracted?.vendor?.trim() || null,
+        expense_date: extracted?.date ?? null,
+        ...(paidCents != null ? { amount: centsToMoney(paidCents) } : {}),
+        receipt_number: extracted?.receipt_number?.trim() || null,
+        payment_method: extracted?.payment_method?.trim() || null,
+        description,
         category_id: manualRequested ? manualCategoryId : (suggestedIds[0] ?? null),
-        ai_extracted: JSON.parse(JSON.stringify(extracted)),
+        ai_extracted: JSON.parse(JSON.stringify(storedExtraction(extracted, paidCents, rawText))),
         ai_suggested_category_ids: suggestedIds,
-        ai_confidence: extracted.confidence,
+        ai_confidence: extracted?.confidence ?? (paidCents == null ? 0 : 0.69),
         verification_status: "needs_review",
       })
       .eq("id", expenseId)
     if (updateError) throw new Error(updateError.message)
 
+    revalidatePath(`/projects/${expense.project_id}`)
+    revalidatePath(`/projects/${expense.project_id}/review`)
     await flagSoftDuplicate(expense.project_id, expenseId)
-    return { ok: true as const, confidence: extracted.confidence }
+    return {
+      ok: true as const,
+      confidence: extracted?.confidence ?? null,
+      amount: paidCents == null ? null : centsToMoney(paidCents),
+    }
   } catch (cause) {
     await supabase
       .from("expenses")
@@ -166,6 +203,79 @@ export async function extractExpense(
       error: cause instanceof Error ? cause.message : "Extraction failed",
     }
   }
+}
+
+async function askClaude(
+  client: Anthropic,
+  model: string,
+  system: string,
+  media: ReceiptMedia[],
+  instruction: string,
+  maxTokens = 4000,
+) {
+  const response = await client.messages.create({
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: [
+      {
+        role: "user",
+        content: [...media, { type: "text", text: instruction }],
+      },
+    ],
+  })
+  return response.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+}
+
+function tryParseExtraction(text: string) {
+  try {
+    return parseExtraction(text)
+  } catch {
+    return null
+  }
+}
+
+function paidCentsFrom(extracted: Extraction | null) {
+  if (!extracted || extracted.total_amount_paid == null) return null
+  return positivePaidCents(extracted.total_amount_paid)
+}
+
+function positivePaidCents(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return null
+  const cents = moneyToCents(value.toFixed(2))
+  return cents > 0 ? cents : null
+}
+
+function salvagePaidCents(text: string) {
+  const match = text.match(/"total_amount_paid"\s*:\s*"?\$?\s*([\d,]+(?:\.\d+)?)/)
+  if (!match) return null
+  const value = Number(match[1].replace(/,/g, ""))
+  return Number.isFinite(value) ? positivePaidCents(value) : null
+}
+
+function preferExtraction(primary: Extraction | null, fallback: Extraction | null): Extraction | null {
+  if (!primary) return fallback
+  if (!fallback) return primary
+  return {
+    ...primary,
+    vendor: primary.vendor?.trim() || fallback.vendor || "",
+    date: primary.date ?? fallback.date ?? null,
+    receipt_number: primary.receipt_number?.trim() || fallback.receipt_number,
+    payment_method: primary.payment_method?.trim() || fallback.payment_method,
+    total_amount_paid: primary.total_amount_paid ?? fallback.total_amount_paid,
+    line_items: primary.line_items.length > 0 ? primary.line_items : fallback.line_items,
+    suggested_categories:
+      primary.suggested_categories.length > 0 ? primary.suggested_categories : fallback.suggested_categories,
+  }
+}
+
+function storedExtraction(extracted: Extraction | null, paidCents: number | null, rawText: string) {
+  const total = paidCents == null ? (extracted?.total_amount_paid ?? null) : Number(centsToMoney(paidCents))
+  if (!extracted) return { total_amount_paid: total, raw: rawText.slice(0, 4000) }
+  return { ...extracted, total_amount_paid: total }
 }
 
 async function flagSoftDuplicate(projectId: string, expenseId: string) {

@@ -13,6 +13,22 @@ function asRecord(value: Json | null) {
   return value as Record<string, Json | undefined>
 }
 
+function receiptAmount(stored: string | number, extracted: Record<string, Json | undefined> | null) {
+  const storedCents = moneyToCents(stored)
+  if (storedCents > 0) return centsToMoney(storedCents)
+  const raw = extracted?.total_amount_paid
+  const numeric =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number(raw.replace(/[$,\s]/g, ""))
+        : Number.NaN
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return centsToMoney(moneyToCents(numeric.toFixed(2)))
+  }
+  return centsToMoney(storedCents)
+}
+
 export default async function ReviewPage({
   params,
   searchParams,
@@ -84,12 +100,13 @@ export default async function ReviewPage({
         </p>
       </div>
     <ReviewScreen
+      key={current.id}
       projectId={id}
       expenseId={current.id}
       queue={queue.length ? queue : [current.id]}
-      vendor={current.vendor ?? ""}
-      date={current.expense_date ?? ""}
-      amount={centsToMoney(moneyToCents(current.amount))}
+      vendor={current.vendor || (typeof extracted?.vendor === "string" ? extracted.vendor : "")}
+      date={current.expense_date || (typeof extracted?.date === "string" ? extracted.date : "")}
+      amount={receiptAmount(current.amount, extracted)}
       description={current.description ?? ""}
       receiptNumber={current.receipt_number ?? ""}
       paymentMethod={current.payment_method ?? ""}
