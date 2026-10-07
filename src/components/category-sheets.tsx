@@ -11,7 +11,7 @@ import { useExpenseSearch } from "@/components/expense-amount-search"
 import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, sumCents } from "@/lib/money"
+import { centsToMoney, formatMoney, moneyToCents, parseMoneyInput, sumCents } from "@/lib/money"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
 
@@ -62,9 +62,18 @@ export function CategorySheets({
   }, [searchQuery, matchIds, activeIndex])
 
   async function saveAmount(row: SheetRow, value: string) {
+    const cents = parseMoneyInput(value)
+    if (cents == null || cents < 0) {
+      toast.error("Enter an amount like 125.00")
+      return
+    }
+    if (cents === moneyToCents(row.amount)) return
     const result = await updateExpenseFields({ projectId, expenseId: row.id, amount: value })
     if (result.error) toast.error(result.error)
-    else router.refresh()
+    else {
+      toast.success("Amount saved")
+      router.refresh()
+    }
   }
 
   async function saveInvoice(row: SheetRow, number: string) {
@@ -163,6 +172,35 @@ export function CategorySheets({
   )
 }
 
+function AmountInput({
+  row,
+  highlighted,
+  onAmount,
+  className,
+}: {
+  row: SheetRow
+  highlighted: boolean
+  onAmount: (row: SheetRow, value: string) => void
+  className: string
+}) {
+  return (
+    <input
+      key={`${row.id}-${row.amount}`}
+      defaultValue={formatMoney(row.amount).replace("$", "")}
+      aria-label={`Amount for ${row.vendor || "receipt"}`}
+      inputMode="decimal"
+      enterKeyHint="done"
+      onBlur={(event) => onAmount(row, event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return
+        event.preventDefault()
+        event.currentTarget.blur()
+      }}
+      className={`${className} ${highlighted ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
+    />
+  )
+}
+
 function CategoryBlock({
   title,
   budget,
@@ -253,11 +291,12 @@ function CategoryBlock({
                       {row.vendor || "Receipt"}
                       {row.pageCount && row.pageCount > 1 ? ` · ${row.pageCount} pages` : ""}
                     </p>
-                    <p
-                      className={`shrink-0 text-base font-semibold tabular-nums ${matchIds.includes(row.id) ? "rounded-md bg-primary/25 px-1.5" : ""}`}
-                    >
-                      {formatMoney(row.amount)}
-                    </p>
+                    <AmountInput
+                      row={row}
+                      highlighted={matchIds.includes(row.id)}
+                      onAmount={onAmount}
+                      className="h-11 w-36 shrink-0 rounded-lg border px-2 text-right text-base font-semibold tabular-nums"
+                    />
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>
                   {invoiceTracking ? (
@@ -296,16 +335,6 @@ function CategoryBlock({
                   Edit this expense
                 </summary>
                 <div className="grid gap-3 pb-2">
-                  <label className="grid gap-1 text-sm">
-                    <span className="text-muted-foreground">Amount</span>
-                    <input
-                      key={`${row.id}-${row.amount}`}
-                      defaultValue={formatMoney(row.amount).replace("$", "")}
-                      onBlur={(event) => onAmount(row, event.target.value)}
-                      inputMode="decimal"
-                      className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base tabular-nums"
-                    />
-                  </label>
                   {invoiceTracking ? (
                     <>
                       <label className="grid gap-1 text-sm">
@@ -403,12 +432,11 @@ function CategoryBlock({
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
                   <td className="px-3 py-2">
-                    <input
-                      key={`${row.id}-${row.amount}`}
-                      defaultValue={formatMoney(row.amount).replace("$", "")}
-                      onBlur={(event) => onAmount(row, event.target.value)}
-                      inputMode="decimal"
-                      className={`h-9 w-24 rounded-lg border px-2 text-right text-sm tabular-nums ${matchIds.includes(row.id) ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
+                    <AmountInput
+                      row={row}
+                      highlighted={matchIds.includes(row.id)}
+                      onAmount={onAmount}
+                      className="h-9 w-36 rounded-lg border px-2 text-right text-sm tabular-nums"
                     />
                   </td>
                   <td className="px-3 py-2">
