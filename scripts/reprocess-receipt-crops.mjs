@@ -108,8 +108,11 @@ const stats = {
 const queue = [...groups.images, ...groups.pdfs]
   .filter((group) => !kindFilter || group.kind === kindFilter)
   .slice(0, Number.isFinite(limit) ? limit : undefined)
+let index = 0
 for (const group of queue) {
+  index += 1
   const label = group.rows.map((row) => row.receipt_number || row.id.slice(0, 8)).join(", ")
+  console.log(`${index}/${queue.length} ${group.kind} ${label}`)
   try {
     const outcome = await processGroup(group, loaded.cropColumns)
     if (group.kind === "pdf") stats.transformedPdfs += 1
