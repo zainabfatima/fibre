@@ -13,6 +13,17 @@ function asRecord(value: Json | null) {
   return value as Record<string, Json | undefined>
 }
 
+function signedLineAmount(value: Json | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return centsToMoney(moneyToCents(value.toFixed(2)))
+  }
+  if (typeof value === "string") {
+    const signed = parseSignedAmount(value)
+    if (signed != null) return centsToMoney(moneyToCents(signed.toFixed(2)))
+  }
+  return ""
+}
+
 function receiptAmount(stored: string | number, extracted: Record<string, Json | undefined> | null) {
   const storedCents = moneyToCents(stored)
   if (storedCents !== 0) return centsToMoney(storedCents)
@@ -68,8 +79,7 @@ export default async function ReviewPage({
         return [
           {
             description: typeof record.description === "string" ? record.description : "",
-            amount:
-              typeof record.amount === "number" ? record.amount.toFixed(2) : "",
+            amount: signedLineAmount(record.amount),
             categoryId: category?.id ?? null,
           },
         ]
