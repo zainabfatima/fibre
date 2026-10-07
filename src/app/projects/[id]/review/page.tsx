@@ -120,7 +120,14 @@ export default async function ReviewPage({
         (current.receipt_thumbnail_path ? byPath.get(current.receipt_thumbnail_path) : null) ??
         (fileType === "image" ? `/r/${current.id}` : null)
       }
-      notes={typeof extracted?.notes === "string" ? extracted.notes : null}
+      notes={
+        [
+          current.needs_manual_crop ? "This photo was saved without a crop. The paper edges were not clear." : "",
+          typeof extracted?.notes === "string" ? extracted.notes : "",
+        ]
+          .filter(Boolean)
+          .join(" ") || null
+      }
       splitSuggested={extracted?.split_suggested === true}
       lineItems={lineItems}
       duplicate={

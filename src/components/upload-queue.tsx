@@ -123,7 +123,18 @@ export function UploadQueue({
         body.set("hashes", result.pageHashes.join(","))
         body.set("captureType", result.captureType)
         body.set("pageCount", String(result.pageCount))
-        body.set("file", new File([result.fileBlob], "receipt.pdf", { type: "application/pdf" }))
+        body.set("cropMethod", result.cropMethod)
+        body.set("needsManualCrop", result.needsManualCrop ? "true" : "false")
+        body.set("cropCorners", JSON.stringify(result.pages.map((page) => page.cropCorners)))
+        body.set(
+          "file",
+          result.fileType === "pdf"
+            ? new File([result.fileBlob], "receipt.pdf", { type: "application/pdf" })
+            : new File([result.fileBlob], "receipt.jpg", { type: "image/jpeg" }),
+        )
+        result.originals.forEach((original) => {
+          body.append("original", new File([original], "original.jpg", { type: original.type || "image/jpeg" }))
+        })
         body.set("thumb", new File([result.thumbnailBlob], "thumb.webp", { type: result.thumbnailBlob.type || "image/webp" }))
         if (lockedCategory != null) body.set("categoryId", String(lockedCategory))
         const uploaded = await saveScannedReceipt(body)
@@ -170,7 +181,7 @@ export function UploadQueue({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 overflow-x-hidden px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="grid gap-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10">
         <label className="flex min-h-11 cursor-pointer items-center gap-3 text-base">
           <input
@@ -235,7 +246,7 @@ export function UploadQueue({
         >
           <p className="font-medium">Drop receipts here</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every photo is saved as a black-and-white PDF.
+            Photos are cropped, straightened, and saved as a clean black-and-white scan.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <label

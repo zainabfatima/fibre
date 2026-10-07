@@ -9,6 +9,7 @@ import { ReceiptPages } from "@/components/receipt-pages"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SIMPLE_DESCRIPTION_MAX_CHARS } from "@/lib/simple-description"
 import { formatCategory } from "@/lib/format"
 import { centsToMoney, formatMoney, parseMoneyInput, sumCents } from "@/lib/money"
 import { withZainab } from "@/lib/zainab-path"
@@ -82,6 +83,12 @@ export function ReviewScreen({
   })
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
+  const [zoomExpenseId, setZoomExpenseId] = useState(expenseId)
+  if (zoomExpenseId !== expenseId) {
+    setZoomExpenseId(expenseId)
+    setZoom(1)
+    setRotation(0)
+  }
   const [query, setQuery] = useState("")
   const [splitOpen, setSplitOpen] = useState(splitSuggested)
   const [splits, setSplits] = useState<Line[]>(
@@ -127,11 +134,6 @@ export function ReviewScreen({
     toast.success("Verified")
     go(queue[index + 1])
   }
-
-  useEffect(() => {
-    setZoom(1)
-    setRotation(0)
-  }, [expenseId])
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -251,7 +253,13 @@ export function ReviewScreen({
         <Field label="Vendor" value={fields.vendor} low={low} onChange={(vendor) => setFields({ ...fields, vendor })} />
         <Field label="Date" value={fields.date} type="date" low={low} onChange={(date) => setFields({ ...fields, date })} />
         <Field label="Amount" value={fields.amount} low={low} onChange={(amount) => setFields({ ...fields, amount })} />
-        <Field label="Description" value={fields.description} onChange={(description) => setFields({ ...fields, description })} />
+        <Field
+          label="Description"
+          value={fields.description}
+          maxLength={SIMPLE_DESCRIPTION_MAX_CHARS}
+          placeholder="What was bought"
+          onChange={(description) => setFields({ ...fields, description })}
+        />
         <Field label="Receipt number" value={fields.receiptNumber} onChange={(receiptNumber) => setFields({ ...fields, receiptNumber })} />
         <Field label="Payment method" value={fields.paymentMethod} onChange={(paymentMethod) => setFields({ ...fields, paymentMethod })} />
         <div className="flex flex-wrap gap-2">
@@ -391,12 +399,16 @@ function Field({
   onChange,
   low,
   type = "text",
+  maxLength,
+  placeholder,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   low?: boolean
   type?: string
+  maxLength?: number
+  placeholder?: string
 }) {
   return (
     <div className="grid gap-1">
@@ -404,6 +416,8 @@ function Field({
       <Input
         type={type}
         value={value}
+        maxLength={maxLength}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className={low ? "bg-amber-50" : undefined}
       />

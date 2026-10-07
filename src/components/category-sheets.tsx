@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -41,7 +41,7 @@ export function CategorySheets({
   const uncategorized = scoped.filter((row) => row.categoryId == null)
   const shown = mode === "needs" ? sections.filter((section) => section.rows.length > 0) : sections
   const search = useExpenseSearch()
-  const matchIds = search?.matchIds ?? []
+  const matchIds = useMemo(() => search?.matchIds ?? [], [search?.matchIds])
   const activeIndex = search?.activeIndex ?? 0
   const searchQuery = search?.query ?? ""
   const seenQuery = useRef(searchQuery)
@@ -265,6 +265,7 @@ function CategoryBlock({
   allRows: SheetRow[]
   readOnly: boolean
 }) {
+  const tableColumns = 5 + (readOnly ? 0 : 2) + (invoiceTracking ? 3 : 0)
   const spentCents = sumCents(rows.map((row) => row.amount))
   const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -342,6 +343,12 @@ function CategoryBlock({
                     />
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>
+                  {row.description ? (
+                    <p className="mt-1 line-clamp-2 text-sm leading-snug break-words">
+                      <span className="sr-only">Description: </span>
+                      {row.description}
+                    </p>
+                  ) : null}
                   {invoiceTracking ? (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="text-sm">{row.invoiceNumber ? `Invoice ${row.invoiceNumber}` : "No invoice"}</span>
@@ -450,11 +457,12 @@ function CategoryBlock({
           </div>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[960px] text-sm">
+          <table className="w-full min-w-[1080px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium">Vendor</th>
+                <th className="px-3 py-2 font-medium">Description</th>
                 <th className="px-3 py-2 font-medium">Amount</th>
                 <th className="px-3 py-2 font-medium">Receipt</th>
                 {readOnly ? null : (
@@ -477,7 +485,7 @@ function CategoryBlock({
                 <Fragment key={row.id}>
                 {isDuplicatePair(row, allRows) && !readOnly ? (
                   <tr className="bg-red-50 dark:bg-red-950/40">
-                    <td colSpan={invoiceTracking ? 9 : 6} className="px-3 py-2">
+                    <td colSpan={tableColumns} className="px-3 py-2">
                       <DuplicateNotice
                         row={row}
                         others={pairedReceipts(row, allRows)}
@@ -494,6 +502,11 @@ function CategoryBlock({
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
+                  <td className="px-3 py-2">
+                    <span className="block max-w-48 truncate" title={row.description ?? undefined}>
+                      {row.description || "—"}
+                    </span>
+                  </td>
                   <td className="px-3 py-2">
                     <AmountInput
                       row={row}
@@ -608,7 +621,7 @@ function CategoryBlock({
                 </Fragment>
               ))}
               <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
-                <td className="px-3 py-2" colSpan={2}>
+                <td className="px-3 py-2" colSpan={3}>
                   Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>

@@ -212,6 +212,11 @@ export type Database = {
           receipt_file_path: string
           receipt_file_hash: string
           receipt_thumbnail_path: string | null
+          original_file_path: string | null
+          original_file_paths: Json
+          crop_corners: Json | null
+          crop_method: string | null
+          needs_manual_crop: boolean
           split_group_id: string | null
           invoice_id: string | null
           ai_extracted: Json | null
@@ -243,6 +248,11 @@ export type Database = {
           receipt_file_path: string
           receipt_file_hash: string
           receipt_thumbnail_path?: string | null
+          original_file_path?: string | null
+          original_file_paths?: Json
+          crop_corners?: Json | null
+          crop_method?: string | null
+          needs_manual_crop?: boolean
           split_group_id?: string | null
           invoice_id?: string | null
           ai_extracted?: Json | null
@@ -274,6 +284,11 @@ export type Database = {
           receipt_file_path?: string
           receipt_file_hash?: string
           receipt_thumbnail_path?: string | null
+          original_file_path?: string | null
+          original_file_paths?: Json
+          crop_corners?: Json | null
+          crop_method?: string | null
+          needs_manual_crop?: boolean
           split_group_id?: string | null
           invoice_id?: string | null
           ai_extracted?: Json | null
@@ -394,6 +409,11 @@ export type Database = {
           page_count: number
           file_type: string
           capture_type: string
+          original_file_path: string | null
+          original_file_paths: Json
+          crop_corners: Json | null
+          crop_method: string | null
+          needs_manual_crop: boolean
         }
         Relationships: []
       }

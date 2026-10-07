@@ -139,6 +139,8 @@ export function ExpenseSheet({
   })
 
   const modelRows = table.getRowModel().rows
+  // TanStack Virtual returns functions the React Compiler cannot memoize.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: modelRows.length,
     getScrollElement: () => parentRef.current,
@@ -317,6 +319,12 @@ export function ExpenseSheet({
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{item.vendor || "Unknown vendor"}</p>
                   <p className="text-sm text-muted-foreground">{item.date || "No date"}</p>
+                  {item.description ? (
+                    <p className="line-clamp-2 text-sm leading-snug break-words">
+                      <span className="sr-only">Description: </span>
+                      {item.description}
+                    </p>
+                  ) : null}
                   <p className="text-sm tabular-nums">{formatMoney(item.amount)}</p>
                 </div>
                 {invoiceTracking ? (

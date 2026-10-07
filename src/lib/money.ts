@@ -65,6 +65,31 @@ export function percentOfCents(cents: number, percent: string | number): number 
   return negative ? -rounded : rounded
 }
 
+/** Dollar amount from a receipt total. Parentheses and a leading minus are negative. */
+export function parseSignedAmount(value: unknown): number | null {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value === 0) return null
+    return Math.round(value * 100) / 100
+  }
+  if (typeof value !== "string") return null
+  let text = value.trim()
+  if (!text || text.toLowerCase() === "null") return null
+  let negative = false
+  if (text.startsWith("(") && text.endsWith(")")) {
+    negative = true
+    text = text.slice(1, -1).trim()
+  }
+  text = text.replace(/[$,\s]/g, "")
+  if (text.startsWith("-")) {
+    negative = true
+    text = text.slice(1)
+  }
+  if (!/^\d+(\.\d+)?$/.test(text)) return null
+  const amount = Number(text)
+  if (!Number.isFinite(amount) || amount === 0) return null
+  return negative ? -amount : amount
+}
+
 export function parseMoneyInput(value: string): number | null {
   const cleaned = value.replace(/[$,\s]/g, "")
   if (!/^-?\d+(\.\d{0,2})?$/.test(cleaned)) return null

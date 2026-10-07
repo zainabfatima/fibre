@@ -5,13 +5,14 @@ import { revalidatePath } from "next/cache"
 
 import { duplicateIdentityKey } from "@/lib/duplicates"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { centsToMoney, moneyToCents } from "@/lib/money"
+import { centsToMoney, moneyToCents, parseSignedAmount } from "@/lib/money"
 import {
   categoryPromptList,
   extractionSystemPrompt,
   parseExtraction,
   type Extraction,
 } from "@/lib/extraction"
+import { simpleDescription } from "@/lib/simple-description"
 import { getServerEnv } from "@/lib/env"
 
 type ReceiptMedia =
@@ -81,9 +82,11 @@ export async function extractExpense(
     (expense.page_count ?? 1) > 1 || type === "application/pdf"
       ? "These pages belong to ONE receipt or invoice. Use the FINAL total from the page that says Total, Amount Due, or Balance Due, usually the last page, not a page subtotal. Combine line items from all pages."
       : "Extract this receipt."
+  const descriptionAsk =
+    "description is one short phrase of what was bought, a few words such as Lumber and screws, Paint, Dumpster rental, or Fuel. Do not list every line item."
   const instruction = manualRequested
-    ? `${instructionBase} The category is already chosen by the user. Do not skip the receipt total. Return vendor, date, time, total_amount_paid, receipt_number, payment_method, and card_last4. total_amount_paid is the final amount paid whenever that total is visible.`
-    : instructionBase
+    ? `${instructionBase} The category is already chosen by the user. Do not skip the receipt total. Return vendor, date, time, total_amount_paid, receipt_number, payment_method, card_last4, and description. ${descriptionAsk} total_amount_paid is the final amount paid whenever that total is visible. If this is a return or refund, total_amount_paid is negative. Parentheses around an amount, such as (12.50) or ($12.50), mean a negative amount.`
+    : `${instructionBase} ${descriptionAsk}`
   const embedded = type === "application/pdf" ? extractEmbeddedImages(bytes) : []
   const imageMedia: ReceiptMedia[] = embedded.slice(0, 20).map((image) => ({
     type: "image",
@@ -118,7 +121,7 @@ export async function extractExpense(
   const primary = imageMedia.length > 0 ? imageMedia : fileMedia
   const alternate = imageMedia.length > 0 && type === "application/pdf" ? fileMedia : null
   const amountPrompt =
-    "Read this black-and-white receipt. Return ONLY JSON: {\"vendor\":\"\",\"date\":\"YYYY-MM-DD or null\",\"time\":\"HH:MM or null\",\"total_amount_paid\":null,\"receipt_number\":null,\"payment_method\":null,\"card_last4\":null}. total_amount_paid is the final amount paid (Total, Amount Due, or Balance Due). Use null if no total is visible. Do not guess a number. card_last4 is only the last 4 digits."
+    "Read this black-and-white receipt. Return ONLY JSON: {\"vendor\":\"\",\"date\":\"YYYY-MM-DD or null\",\"time\":\"HH:MM or null\",\"total_amount_paid\":null,\"description\":\"\",\"receipt_number\":null,\"payment_method\":null,\"card_last4\":null}. total_amount_paid is the final amount paid (Total, Amount Due, or Balance Due). A return, refund, or credit is negative. An amount in parentheses, such as (12.50) or ($12.50), is negative: -12.50. Keep the minus sign. Use null if no total is visible. Do not guess a number. description is one short phrase of what was bought, a few words, not a list of line items. card_last4 is only the last 4 digits."
 
   let rawText = ""
   try {
@@ -154,12 +157,7 @@ export async function extractExpense(
       .map((item) => byCode.get(item.code))
       .filter((id): id is number => typeof id === "number")
       .slice(0, 3)
-    const description =
-      extracted?.line_items
-        .map((item) => item.description)
-        .filter(Boolean)
-        .slice(0, 3)
-        .join("; ") || null
+    const description = simpleDescription(extracted?.description) || null
 
     const { error: updateError } = await supabase
       .from("expenses")
@@ -242,20 +240,21 @@ function tryParseExtraction(text: string) {
 
 function paidCentsFrom(extracted: Extraction | null) {
   if (!extracted || extracted.total_amount_paid == null) return null
-  return positivePaidCents(extracted.total_amount_paid)
+  return signedPaidCents(extracted.total_amount_paid)
 }
 
-function positivePaidCents(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return null
+function signedPaidCents(value: number) {
+  if (!Number.isFinite(value) || value === 0) return null
   const cents = moneyToCents(value.toFixed(2))
-  return cents > 0 ? cents : null
+  return cents === 0 ? null : cents
 }
 
 function salvagePaidCents(text: string) {
-  const match = text.match(/"total_amount_paid"\s*:\s*"?\$?\s*([\d,]+(?:\.\d+)?)/)
+  const match = text.match(/"total_amount_paid"\s*:\s*("([^"]*)"|(-?\(?\$?[\d,]+(?:\.\d+)?\)?))/)
   if (!match) return null
-  const value = Number(match[1].replace(/,/g, ""))
-  return Number.isFinite(value) ? positivePaidCents(value) : null
+  const amount = parseSignedAmount(match[2] ?? match[3] ?? "")
+  if (amount == null) return null
+  return signedPaidCents(amount)
 }
 
 function preferExtraction(primary: Extraction | null, fallback: Extraction | null): Extraction | null {
@@ -270,6 +269,7 @@ function preferExtraction(primary: Extraction | null, fallback: Extraction | nul
     payment_method: primary.payment_method?.trim() || fallback.payment_method,
     card_last4: primary.card_last4 || fallback.card_last4 || null,
     total_amount_paid: primary.total_amount_paid ?? fallback.total_amount_paid,
+    description: simpleDescription(primary.description) || simpleDescription(fallback.description),
     line_items: primary.line_items.length > 0 ? primary.line_items : fallback.line_items,
     suggested_categories:
       primary.suggested_categories.length > 0 ? primary.suggested_categories : fallback.suggested_categories,
@@ -291,7 +291,7 @@ const IDENTITY_SYSTEM = `You read a construction receipt and return ONLY JSON. N
   "payment_method": "cash, check, visa, mastercard, amex, discover, debit, or other",
   "card_last4": "last 4 digits or null"
 }
-Do not guess. time is the printed transaction time in 24-hour HH:MM, or null. card_last4 is only the last 4 digits. Never return a full card number. payment_method is the payment type or card brand, not the card number.`
+Do not guess. time is the printed transaction time in 24-hour HH:MM, or null. card_last4 is only the last 4 digits. Never return a full card number. payment_method is the payment type or card brand, not the card number. A return or an amount in parentheses is a negative total_amount_paid.`
 
 function identityChecked(value: unknown) {
   return Boolean(

@@ -28,6 +28,8 @@ export type ScanResult = {
   pageHashes: string[]
   filter: ScanFilter
   captureType: CaptureType
+  cropMethod: "auto" | "fallback" | "manual" | "none"
+  needsManualCrop: boolean
   pages: ScanPageMeta[]
   /** Re-render the same crops with another filter. Used when extraction confidence is low. */
   rerender: (filter: ScanFilter) => Promise<Blob>

@@ -1,6 +1,8 @@
 import { z } from "zod"
 
 import { formatCategory } from "@/lib/format"
+import { simpleDescription } from "@/lib/simple-description"
+import { parseSignedAmount } from "@/lib/money"
 
 export const CATEGORY_RULES = `Some categories overlap. Apply these rules when suggesting:
 - Soft costs: architect → 1 Architectural; engineer → 2 Engineering; legal → 3 Legal; the building permit itself → 4 Permits; survey → 5 Surveying; insurance → 6 Insurance; site plan → 7 Site plans. Impact fees, tap fees, plan review, and inspection charges → 8 Other soft costs.
@@ -49,6 +51,7 @@ export const extractionSchema = z.object({
   time: z.preprocess(nullableText, z.string().nullable().optional().default(null)),
   payment_method: z.preprocess(nullableText, z.string().nullable().optional()),
   card_last4: z.preprocess(nullableText, z.string().nullable().optional().default(null)),
+  description: z.preprocess(nullableText, z.string().nullable().optional().default("")),
   line_items: z.array(lineItemSchema).optional().default([]),
   suggested_categories: z.array(suggestionSchema).optional().default([]),
   split_suggested: z.coerce.boolean().optional().default(false),
@@ -72,9 +75,9 @@ export function parseExtraction(text: string) {
   const loosened = jsonText.replace(
     /"(total_amount_paid|subtotal|tax|amount)"\s*:\s*"([^"]*)"/g,
     (_match, key: string, value: string) => {
-      const cleaned = value.replace(/[$,\s]/g, "")
-      if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return `"${key}": null`
-      return `"${key}": ${cleaned}`
+      const amount = parseSignedAmount(value)
+      if (amount == null) return `"${key}": null`
+      return `"${key}": ${amount}`
     },
   )
   const parsed = extractionSchema.safeParse(JSON.parse(loosened))
@@ -90,8 +93,11 @@ export function parseExtraction(text: string) {
   if (!date || data.total_amount_paid == null) confidence = Math.min(confidence, 0.69)
   const codes = data.suggested_categories.slice(0, 3)
   if (codes.some((item) => item.code === 59)) confidence = Math.min(confidence, 0.59)
-  return { ...data, date, time, card_last4, confidence, suggested_categories: codes }
+  const description = simpleDescription(data.description)
+  return { ...data, date, time, card_last4, confidence, suggested_categories: codes, description }
 }
+
+export { simpleDescription, SIMPLE_DESCRIPTION_MAX_CHARS, SIMPLE_DESCRIPTION_MAX_WORDS } from "@/lib/simple-description"
 
 export function normalizeReceiptTime(value: string | null | undefined) {
   if (!value) return null
@@ -128,17 +134,20 @@ export function extractionSystemPrompt(categoryList: string) {
   return `You extract data from construction receipt and invoice images.
 Return ONLY JSON. No markdown, no code fences, no commentary.
 Use the FINAL amount actually paid (after tax and discounts), not the subtotal, for total_amount_paid.
+Returns, refunds, and credits are negative. An amount in parentheses is negative: (12.50) and ($12.50) mean -12.50. A leading minus is negative. Keep the sign. Do not return the absolute value of a return.
 Pick up to 3 category codes ONLY from the list below.
 Set confidence below 0.7 when the amount or date is unclear.
 Dates must be YYYY-MM-DD or null.
 time is the transaction time printed on the receipt, 24-hour HH:MM, or null when no time is printed.
 card_last4 is only the last 4 digits of the card. Never return a full card number. Use null when no card is printed.
 payment_method is the payment type or card brand, not the card number.
+description is one short phrase of what was bought, a few words only (8 words maximum). Examples: "Lumber and screws", "Paint", "Dumpster rental", "Fuel". Do not list every line item, SKU, quantity, or price. Do not write a sentence or paragraph. line_items may still list individual lines; never copy that full list into description.
 
 JSON shape:
 {
   "vendor": "string",
   "date": "YYYY-MM-DD",
+  "description": "a few words, such as Lumber and screws",
   "total_amount_paid": 0.00,
   "subtotal": 0.00,
   "tax": 0.00,

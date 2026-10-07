@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { syncDuplicateFlag } from "@/lib/extract-receipt"
+import { simpleDescription } from "@/lib/simple-description"
 import { deriveInvoiceBillingStatus } from "@/lib/labels"
 import { requireAdmin } from "@/lib/db"
 import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
@@ -79,8 +80,24 @@ export async function saveScannedReceipt(formData: FormData) {
   const captureRaw = String(formData.get("captureType") ?? "single")
   const captureType = captureRaw === "long" || captureRaw === "multi_page" ? captureRaw : "single"
   const pageCount = Math.max(1, Math.min(20, Number(formData.get("pageCount") ?? (hashes.length || 1))))
-  if (!(file instanceof File) || file.type !== "application/pdf" || !projectId || hashes.length === 0) {
-    return { error: "The scanned receipt must be a PDF" }
+  const isPdf = file instanceof File && file.type === "application/pdf"
+  const isJpeg = file instanceof File && file.type === "image/jpeg"
+  if (!(file instanceof File) || (!isPdf && !isJpeg) || !projectId || hashes.length === 0) {
+    return { error: "The scanned receipt is missing" }
+  }
+  const cropMethodRaw = String(formData.get("cropMethod") ?? "")
+  const cropMethod = cropMethodRaw === "auto" || cropMethodRaw === "fallback" || cropMethodRaw === "manual" || cropMethodRaw === "none"
+    ? cropMethodRaw
+    : null
+  let cropCorners: Database["public"]["Tables"]["expenses"]["Insert"]["crop_corners"] = null
+  const cornersRaw = String(formData.get("cropCorners") ?? "")
+  if (cornersRaw) {
+    try {
+      const parsed = JSON.parse(cornersRaw) as unknown
+      if (Array.isArray(parsed)) cropCorners = parsed as Database["public"]["Tables"]["expenses"]["Insert"]["crop_corners"]
+    } catch {
+      cropCorners = null
+    }
   }
   const existing = await lookupPageHashes(projectId, hashes)
   if ("error" in existing && existing.error) return { error: existing.error }
@@ -107,12 +124,24 @@ export async function saveScannedReceipt(formData: FormData) {
     categoryId = category.id
   }
   const id = crypto.randomUUID()
-  const path = `${projectId}/0/${id}.pdf`
+  const path = `${projectId}/0/${id}.${isPdf ? "pdf" : "jpg"}`
   const uploaded = await supabase.storage.from("receipts").upload(path, Buffer.from(await file.arrayBuffer()), {
-    contentType: "application/pdf",
+    contentType: isPdf ? "application/pdf" : "image/jpeg",
     upsert: false,
   })
   if (uploaded.error) return { error: uploaded.error.message }
+
+  const originalFiles = formData.getAll("original").filter((entry): entry is File => entry instanceof File && entry.size > 0)
+  const originalPaths: string[] = []
+  for (let index = 0; index < originalFiles.length; index += 1) {
+    const original = originalFiles[index]
+    const originalPath = `${projectId}/0/${id}${originalFiles.length > 1 ? `-p${index + 1}` : ""}.jpg`
+    const originalUpload = await supabase.storage.from("receipt-originals").upload(originalPath, Buffer.from(await original.arrayBuffer()), {
+      contentType: "image/jpeg",
+      upsert: false,
+    })
+    if (!originalUpload.error) originalPaths.push(originalPath)
+  }
 
   let thumbPath: string | null = null
   if (thumb instanceof File && thumb.size > 0) {
@@ -131,14 +160,20 @@ export async function saveScannedReceipt(formData: FormData) {
     receipt_file_path: path,
     receipt_file_hash: hashes[0],
     receipt_thumbnail_path: thumbPath,
+    original_file_path: originalPaths[0] ?? null,
+    original_file_paths: originalPaths,
+    crop_corners: cropCorners,
+    crop_method: cropMethod,
+    needs_manual_crop: formData.get("needsManualCrop") === "true" || cropMethod === "none",
     verification_status: "needs_review",
     page_count: pageCount,
-    file_type: "pdf",
+    file_type: isPdf ? "pdf" : "image",
     capture_type: captureType,
     ...(categoryId != null ? { category_id: categoryId } : {}),
   })
   if (error) {
     await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
+    if (originalPaths.length) await supabase.storage.from("receipt-originals").remove(originalPaths)
     return { error: error.message }
   }
   const { error: hashError } = await supabase.from("receipt_page_hashes").insert(
@@ -152,6 +187,7 @@ export async function saveScannedReceipt(formData: FormData) {
   if (hashError) {
     await supabase.from("expenses").delete().eq("id", id)
     await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
+    if (originalPaths.length) await supabase.storage.from("receipt-originals").remove(originalPaths)
     return { error: hashError.message }
   }
 
@@ -265,7 +301,7 @@ export async function updateExpenseFields(input: {
   }
   if ("vendor" in input) patch.vendor = input.vendor?.trim() || null
   if ("expenseDate" in input) patch.expense_date = input.expenseDate || null
-  if ("description" in input) patch.description = input.description?.trim() || null
+  if ("description" in input) patch.description = simpleDescription(input.description) || null
   if ("receiptNumber" in input) patch.receipt_number = input.receiptNumber?.trim() || null
   if ("paymentMethod" in input) patch.payment_method = input.paymentMethod?.trim() || null
   if (input.verify) patch.verification_status = "verified"
@@ -292,7 +328,7 @@ export async function deleteExpense(projectId: string, expenseId: string) {
   const supabase = await requireAdmin()
   const { data: expense } = await supabase
     .from("expenses")
-    .select("receipt_file_path, receipt_thumbnail_path, split_group_id, receipt_file_hash")
+    .select("receipt_file_path, receipt_thumbnail_path, original_file_path, original_file_paths, split_group_id, receipt_file_hash")
     .eq("id", expenseId)
     .maybeSingle()
   const { error } = await supabase.from("expenses").delete().eq("id", expenseId)
@@ -305,6 +341,11 @@ export async function deleteExpense(projectId: string, expenseId: string) {
           Boolean,
         ) as string[],
       )
+    const originals = [
+      expense.original_file_path,
+      ...(Array.isArray(expense.original_file_paths) ? expense.original_file_paths : []),
+    ].filter((path): path is string => typeof path === "string" && path.length > 0)
+    if (originals.length) await supabase.storage.from("receipt-originals").remove(originals)
   }
   refresh(projectId)
   return { error: null }
@@ -347,7 +388,7 @@ export async function saveSplit(input: {
       split_group_id: groupId,
       category_id: first.categoryId,
       amount: centsToMoney(first.cents!),
-      description: first.description.trim() || null,
+      description: simpleDescription(first.description) || null,
       verification_status: "needs_review",
     })
     .eq("id", original.id)
@@ -368,11 +409,16 @@ export async function saveSplit(input: {
     expense_date: original.expense_date,
     amount: centsToMoney(row.cents!),
     receipt_number: original.receipt_number,
-    description: row.description.trim() || null,
+    description: simpleDescription(row.description) || null,
     payment_method: original.payment_method,
     receipt_file_path: original.receipt_file_path,
     receipt_file_hash: original.receipt_file_hash,
     receipt_thumbnail_path: original.receipt_thumbnail_path,
+    original_file_path: original.original_file_path,
+    original_file_paths: original.original_file_paths,
+    crop_corners: original.crop_corners,
+    crop_method: original.crop_method,
+    needs_manual_crop: original.needs_manual_crop,
     split_group_id: groupId,
     ai_extracted: original.ai_extracted,
     ai_suggested_category_ids: original.ai_suggested_category_ids,

@@ -2,39 +2,77 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { ReceiptCropper } from "@/components/ReceiptCropper"
 import { CameraCapture } from "@/components/scanner/camera-capture"
-import { CornerAdjuster } from "@/components/scanner/corner-adjuster"
 import { PageManager, type ManagedPage } from "@/components/scanner/page-manager"
 import { ScanPreview } from "@/components/scanner/scan-preview"
-import { blobFromFile, imageDataToBlob, previewUrl, scanPage } from "@/lib/scanner/engine"
-import { detectCorners, rotate } from "@/lib/scanner/image"
+import {
+  cornersNear,
+  cropReceipt,
+  decodeReceiptFile,
+  fullFrameCorners,
+  loadOpenCv,
+  rasterToDataUrl,
+  rasterToJpegBlob,
+  renderCrop,
+  rotateRaster,
+  type CropMethod,
+  type Point,
+  type Raster,
+} from "@/lib/receiptCrop"
 import { sha256 } from "@/lib/scanner/hash"
+import { checksFor } from "@/lib/scanner/image"
 import { imagesToPdf, renderPdf } from "@/lib/scanner/pdf"
-import type { CaptureType, PageChecks, Point, ScanFilter, ScanResult } from "@/lib/scanner/types"
+import type { CaptureType, PageChecks, ScanResult } from "@/lib/scanner/types"
+
+type Choice = "auto" | "manual" | "original"
 
 type Draft = {
   id: string
   hash: string
   original: Blob
-  source: ImageData
+  source: Raster
   corners: Point[]
-  filter: ScanFilter
+  autoCorners: Point[]
+  autoMethod: CropMethod
+  choice: Choice
+  confidence: number
   checks: PageChecks
   previewUrl: string
-  processed: ImageData | null
+  processed: Raster | null
 }
 
 const emptyChecks: PageChecks = { blurry: false, tooSmall: false, glare: false, dark: false, joins: false }
 
-async function fileToJpegBlob(file: Blob) {
-  const name = file instanceof File ? file.name.toLowerCase() : ""
-  const type = file.type.toLowerCase()
-  if (name.endsWith(".heic") || name.endsWith(".heif") || type.includes("heic")) {
-    const heic2any = (await import("heic2any")).default
-    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 })
-    return Array.isArray(converted) ? converted[0] : converted
+function asImageData(raster: Raster) {
+  return new ImageData(new Uint8ClampedArray(raster.data), raster.width, raster.height)
+}
+
+function pageMethod(page: Draft): CropMethod {
+  if (page.choice === "original") return "none"
+  const tolerance = Math.max(6, Math.max(page.source.width, page.source.height) * 0.012)
+  if (page.choice === "manual" || !cornersNear(page.corners, page.autoCorners, tolerance)) return "manual"
+  return page.autoMethod
+}
+
+function paintPage(page: Draft): Draft {
+  const method = pageMethod(page)
+  const corners = page.choice === "original" ? fullFrameCorners(page.source.width, page.source.height) : page.corners
+  const rendered = renderCrop(page.source, corners, method, page.confidence)
+  return {
+    ...page,
+    corners: page.choice === "original" ? corners : rendered.corners,
+    processed: rendered.image,
+    checks: checksFor(asImageData(rendered.image), rendered.image.width),
+    previewUrl: rasterToDataUrl(rendered.image),
   }
-  return file
+}
+
+function combinedMethod(methods: CropMethod[]): CropMethod {
+  if (methods.includes("manual")) return "manual"
+  if (methods.includes("none")) return "none"
+  if (methods.includes("fallback")) return "fallback"
+  return "auto"
 }
 
 export function ReceiptScanner({
@@ -60,6 +98,9 @@ export function ReceiptScanner({
   const editing = pages.find((page) => page.id === editingId) ?? null
   const started = useRef(false)
   useEffect(() => {
+    void loadOpenCv()
+  }, [])
+  useEffect(() => {
     if (started.current || initialFiles.length === 0) return
     started.current = true
     void acceptFiles(initialFiles)
@@ -74,42 +115,62 @@ export function ReceiptScanner({
       document.body.style.overflow = previous
     }
   }, [editingId, previewSrc])
-  const kind = captureType === "multi_page" ? "document" : "receipt"
-
   async function addBlob(blob: Blob, hashBlob = blob) {
-    setStatus("Reading the photo")
-    const hash = await sha256(hashBlob)
-    const prepared = await fileToJpegBlob(blob)
-    const source = await blobFromFile(prepared)
-    const corners = detectCorners(source)
-    const id = crypto.randomUUID()
-    const draft: Draft = {
-      id,
-      hash,
-      original: hashBlob,
-      source,
-      corners,
-      filter: "bw",
-      checks: emptyChecks,
-      previewUrl: "",
-      processed: null,
+    setStatus("Finding the receipt")
+    try {
+      const hash = await sha256(hashBlob)
+      const source = await decodeReceiptFile(blob)
+      const detected = await cropReceipt(source)
+      const original = await rasterToJpegBlob(source, 0.85)
+      const id = crypto.randomUUID()
+      const draft = paintPage({
+        id,
+        hash,
+        original,
+        source,
+        corners: detected.corners,
+        autoCorners: detected.corners,
+        autoMethod: detected.method,
+        choice: detected.method === "none" ? "original" : "auto",
+        confidence: detected.confidence,
+        checks: emptyChecks,
+        previewUrl: "",
+        processed: null,
+      })
+      setPages((current) => [...current, draft].slice(0, 20))
+      setEditingId(id)
+      setCamera(false)
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : "This photo could not be opened")
+    } finally {
+      setStatus(null)
     }
-    setPages((current) => [...current, draft].slice(0, 20))
-    setEditingId(id)
-    setCamera(false)
-    setStatus(null)
-    void refreshPreviews(draft)
   }
 
-  async function refreshPreviews(draft: Draft) {
-    const scanned = await scanPage(draft.source, draft.corners, "bw", kind)
-    setPages((current) =>
-      current.map((page) =>
-        page.id === draft.id
-          ? { ...page, filter: "bw", processed: scanned.image, checks: scanned.checks, previewUrl: previewUrl(scanned.image) }
-          : page,
-      ),
-    )
+  async function rotateEditing() {
+    if (!editing) return
+    setStatus("Turning the photo")
+    try {
+      const source = rotateRaster(editing.source, 1)
+      const detected = await cropReceipt(source)
+      const original = await rasterToJpegBlob(source, 0.85)
+      const next = paintPage({
+        ...editing,
+        source,
+        original,
+        corners: detected.corners,
+        autoCorners: detected.corners,
+        autoMethod: detected.method,
+        choice: detected.method === "none" ? "original" : "auto",
+        confidence: detected.confidence,
+        processed: null,
+      })
+      setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : "Could not rotate the photo")
+    } finally {
+      setStatus(null)
+    }
   }
 
   async function acceptFiles(files: File[]) {
@@ -130,53 +191,50 @@ export function ReceiptScanner({
     () =>
       pages.map((page) => ({
         id: page.id,
-        previewUrl: page.previewUrl || previewUrl(page.source),
+        previewUrl: page.previewUrl || rasterToDataUrl(page.source),
         checks: page.checks,
       })),
     [pages],
   )
 
-  async function blackAndWhitePdf(images: ImageData[]) {
-    const pages = await Promise.all(images.map((image) => smallestBwPage(image)))
-    const fileBlob = await imagesToPdf(pages)
-    if (fileBlob.size > 15 * 1024 * 1024) setNote("This PDF is over 15 MB.")
-    return fileBlob
-  }
-
   async function buildResult(group: Draft[], type: CaptureType): Promise<ScanResult> {
-    const kindForPages = type === "multi_page" ? "document" : "receipt"
-    const scanned = await Promise.all(
-      group.map((page) => scanPage(page.source, page.corners, "bw", kindForPages)),
-    )
-    const processed = scanned.map((item) => item.image)
-    const fileBlob = await blackAndWhitePdf(processed)
-    const thumbSource = processed[0]
+    const painted = group.map((page) => (page.processed ? page : paintPage(page)))
+    const images = painted.map((page) => page.processed).filter((image): image is Raster => Boolean(image))
+    const jpegs = await Promise.all(images.map((image) => rasterToJpegBlob(image, 0.85)))
+    const multi = type !== "single" && painted.length > 1
+    const fileBlob = multi ? await imagesToPdf(jpegs) : jpegs[0]
+    if (!fileBlob) throw new Error("The scan could not be saved")
+    if (fileBlob.size > 15 * 1024 * 1024) setNote("This scan is over 15 MB.")
+    const thumbSource = images[0]
     const thumbCanvas = document.createElement("canvas")
     thumbCanvas.width = 400
     thumbCanvas.height = Math.max(1, Math.round((thumbSource.height / thumbSource.width) * 400))
     const full = document.createElement("canvas")
     full.width = thumbSource.width
     full.height = thumbSource.height
-    full.getContext("2d")?.putImageData(thumbSource, 0, 0)
+    full.getContext("2d")?.putImageData(asImageData(thumbSource), 0, 0)
     thumbCanvas.getContext("2d")?.drawImage(full, 0, 0, thumbCanvas.width, thumbCanvas.height)
     const thumbnailBlob = await new Promise<Blob>((resolve, reject) => {
       thumbCanvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Could not make a thumbnail"))), "image/webp", 0.75)
     })
+    const methods = painted.map(pageMethod)
     return {
       fileBlob,
-      fileType: "pdf",
+      fileType: multi ? "pdf" : "image",
       pageCount: group.length,
       thumbnailBlob,
-      originals: [],
-      pageHashes: group.map((page) => page.hash),
+      originals: painted.map((page) => page.original),
+      pageHashes: painted.map((page) => page.hash),
       filter: "bw",
       captureType: type,
-      pages: group.map((page, index) => ({
-        width: processed[index].width,
-        height: processed[index].height,
+      cropMethod: combinedMethod(methods),
+      needsManualCrop: methods.some((method) => method === "none"),
+      pages: painted.map((page, index) => ({
+        width: images[index].width,
+        height: images[index].height,
         cropCorners: page.corners,
         filter: "bw" as const,
-        checks: scanned[index].checks,
+        checks: page.checks,
       })),
       rerender: async () => fileBlob,
     }
@@ -186,23 +244,7 @@ export function ReceiptScanner({
     if (pages.length === 0) return
     setBusy(true)
     try {
-      const group: Draft[] = []
-      for (const page of pages) {
-        const current = editing && page.id === editing.id ? editing : page
-        const stale = Boolean(editing && page.id === editing.id)
-        if (current.processed && !stale) {
-          group.push(current)
-          continue
-        }
-        const scanned = await scanPage(current.source, current.corners, "bw", kind)
-        group.push({
-          ...current,
-          filter: "bw",
-          processed: scanned.image,
-          checks: scanned.checks,
-          previewUrl: previewUrl(scanned.image),
-        })
-      }
+      const group = pages.map((page) => paintPage(editing && page.id === editing.id ? editing : page))
       setPages(group)
       const warnings = group.flatMap((page) => checkLabels(page.checks))
       if (warnings.length && !note && !direct) {
@@ -210,8 +252,8 @@ export function ReceiptScanner({
         return
       }
       if (!direct && !previewSrc) {
-        const first = group[0]?.processed
-        if (first) setPreviewSrc(previewUrl(first))
+        const first = group[0]?.previewUrl
+        if (first) setPreviewSrc(first)
         return
       }
       const type = chosen ?? (group.length === 1 ? "single" : captureType)
@@ -267,93 +309,42 @@ export function ReceiptScanner({
         </div>
       ) : null}
       {editing ? (
-        <div className="fixed inset-0 z-40 flex h-dvh flex-col bg-background">
-          <div className="shrink-0 border-b border-border bg-background px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <h2 className="font-medium">Scan receipt</h2>
-              <button type="button" onClick={onCancel} className="min-h-11 px-3 text-sm underline">
-                Cancel
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="min-h-11 rounded-lg border border-input px-3 text-sm"
-                onClick={() => {
-                  const corners = detectCorners(editing.source)
-                  setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
-                }}
-              >
-                Auto
-              </button>
-              <button
-                type="button"
-                className="min-h-11 rounded-lg border border-input px-3 text-sm"
-                onClick={() => {
-                  const corners = [
-                    { x: 0, y: 0 },
-                    { x: editing.source.width - 1, y: 0 },
-                    { x: editing.source.width - 1, y: editing.source.height - 1 },
-                    { x: 0, y: editing.source.height - 1 },
-                  ]
-                  setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
-                }}
-              >
-                Full image
-              </button>
-              <button
-                type="button"
-                className="min-h-11 rounded-lg border border-input px-3 text-sm"
-                onClick={() => {
-                  const source = rotate(editing.source, 1)
-                  const corners = detectCorners(source)
-                  setPages((current) =>
-                    current.map((page) => (page.id === editing.id ? { ...page, source, corners, processed: null } : page)),
-                  )
-                }}
-              >
-                Rotate
-              </button>
-              <button
-                type="button"
-                className="min-h-11 rounded-lg border border-input px-3 text-sm"
-                onClick={() => {
-                  void refreshPreviews(editing)
-                  setEditingId(null)
-                }}
-              >
-                Use this page
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="col-span-2 min-h-11 rounded-lg border border-input px-3 text-sm font-medium disabled:opacity-60"
-                onClick={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
-              >
-                {busy ? "Saving…" : "Confirm"}
-              </button>
-            </div>
-            <button
-              type="button"
-              disabled={busy}
-              className="mt-2 min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
-              onClick={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
-            >
-              {busy ? "Saving…" : "Done"}
-            </button>
-            {warning ? <p className="mt-1 text-sm text-red-700">{warning}</p> : null}
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <p className="mb-2 text-sm text-muted-foreground">Saved as a black-and-white PDF.</p>
-            <CornerAdjuster
-              image={editing.source}
-              corners={editing.corners}
-              onChange={(corners) => {
-                setPages((current) => current.map((page) => (page.id === editing.id ? { ...page, corners } : page)))
-              }}
-            />
-          </div>
-        </div>
+        <ReceiptCropper
+          image={editing.source}
+          corners={editing.corners}
+          needsManualCrop={editing.autoMethod === "none" && editing.choice !== "manual"}
+          busy={busy}
+          note={warning}
+          onCancel={onCancel}
+          onChange={(corners) => {
+            setPages((current) =>
+              current.map((page) => (page.id === editing.id ? { ...page, corners, choice: "manual" } : page)),
+            )
+          }}
+          onUseCrop={() => {
+            const next = paintPage({ ...editing, choice: pageMethod(editing) === "none" ? "original" : editing.choice })
+            setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+            setEditingId(null)
+          }}
+          onResetAuto={() => {
+            const next = paintPage({
+              ...editing,
+              corners: editing.autoCorners,
+              choice: editing.autoMethod === "none" ? "original" : "auto",
+            })
+            setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+          }}
+          onUseOriginal={() => {
+            const next = paintPage({
+              ...editing,
+              choice: "original",
+              corners: fullFrameCorners(editing.source.width, editing.source.height),
+            })
+            setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+          }}
+          onRotate={() => void rotateEditing()}
+          onDone={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
+        />
       ) : null}
       {pages.length > 0 ? (
         <PageManager
@@ -436,10 +427,6 @@ export function ReceiptScanner({
       ) : null}
     </div>
   )
-}
-
-function smallestBwPage(image: ImageData) {
-  return imageDataToBlob(image, "image/jpeg", 0.8)
 }
 
 function checkLabels(checks: PageChecks) {

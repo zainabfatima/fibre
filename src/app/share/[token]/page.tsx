@@ -152,6 +152,7 @@ function CategorySection({
     id: string
     expense_date: string | null
     vendor: string | null
+    description: string | null
     amount: number
     category_id: number | null
     receipt_thumbnail_path: string | null
@@ -212,6 +213,12 @@ function CategorySection({
                       <p className="shrink-0 text-base font-semibold tabular-nums">{formatMoney(row.amount)}</p>
                     </div>
                     <p className="mt-0.5 text-muted-foreground">{row.expense_date || "No date"}</p>
+                    {row.description ? (
+                      <p className="mt-1 line-clamp-2 leading-snug break-words">
+                        <span className="sr-only">Description: </span>
+                        {row.description}
+                      </p>
+                    ) : null}
                     {invoiceTracking ? (
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span>{row.invoice_number ? `Invoice ${row.invoice_number}` : "No invoice"}</span>
@@ -243,11 +250,12 @@ function CategorySection({
           </p>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[840px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium">Vendor</th>
+                <th className="px-3 py-2 font-medium">Description</th>
                 <th className="px-3 py-2 font-medium">Amount</th>
                 <th className="px-3 py-2 font-medium">Receipt</th>
                 {invoiceTracking ? (
@@ -266,6 +274,11 @@ function CategorySection({
                   <tr key={row.id} className="border-b border-border/70">
                     <td className="px-3 py-2 whitespace-nowrap">{row.expense_date || "—"}</td>
                     <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
+                    <td className="px-3 py-2">
+                      <span className="block max-w-48 truncate" title={row.description ?? undefined}>
+                        {row.description || "—"}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 tabular-nums">{formatMoney(row.amount)}</td>
                     <td className="px-3 py-2">
                       <a
@@ -306,7 +319,7 @@ function CategorySection({
                 )
               })}
               <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
-                <td className="px-3 py-2" colSpan={2}>
+                <td className="px-3 py-2" colSpan={3}>
                   Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
