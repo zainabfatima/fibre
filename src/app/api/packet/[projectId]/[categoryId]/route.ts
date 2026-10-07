@@ -29,7 +29,6 @@ export async function GET(
     .from("v_expense_rows")
     .select("*")
     .eq("project_id", projectId)
-    .eq("verification_status", "verified")
 
   expensesQuery = uncategorized
     ? expensesQuery.is("category_id", null)

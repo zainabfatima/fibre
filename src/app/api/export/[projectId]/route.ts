@@ -21,14 +21,16 @@ export async function GET(
     return NextResponse.json({ error: "Sign in required" }, { status: 401 })
   }
 
+  let expensesQuery = admin
+    .from("v_expense_rows")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("expense_date", { ascending: false, nullsFirst: false })
+  if (!session) expensesQuery = expensesQuery.eq("verification_status", "verified")
+
   const [{ data: categories }, { data: expenses }] = await Promise.all([
     admin.from("v_project_category_totals").select("*").eq("project_id", projectId).order("code"),
-    admin
-      .from("v_expense_rows")
-      .select("*")
-      .eq("project_id", projectId)
-      .eq("verification_status", "verified")
-      .order("expense_date", { ascending: false, nullsFirst: false }),
+    expensesQuery,
   ])
 
   const workbook = await buildWorkbook({

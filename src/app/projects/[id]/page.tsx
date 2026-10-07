@@ -35,17 +35,18 @@ export default async function ProjectExpensesPage({
     listClientPayments(id),
   ])
   const admin = createAdminClient()
-  const posted = expenses.filter((row) => row.verification_status === "verified")
-  const thumbs = posted
+  const thumbs = expenses
     .map((row) => row.receipt_thumbnail_path)
     .filter((path): path is string => Boolean(path))
-  const signed = thumbs.length
-    ? await admin.storage.from("receipts").createSignedUrls(thumbs, 60 * 30)
-    : { data: [] }
-  const thumbByPath = new Map(
-    (signed.data ?? []).map((item) => [item.path, item.signedUrl]),
-  )
-  const rows: SheetRow[] = posted.map((row) => ({
+  const thumbByPath = new Map<string, string>()
+  for (let index = 0; index < thumbs.length; index += 80) {
+    const batch = thumbs.slice(index, index + 80)
+    const signed = await admin.storage.from("receipts").createSignedUrls(batch, 60 * 30)
+    for (const item of signed.data ?? []) {
+      if (item.path && item.signedUrl) thumbByPath.set(item.path, item.signedUrl)
+    }
+  }
+  const rows: SheetRow[] = expenses.map((row) => ({
     id: row.id,
     date: row.expense_date,
     vendor: row.vendor,
