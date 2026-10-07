@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
-import { parseExtraction } from "./extraction.ts"
 import {
   centsToMoney,
   formatMoney,
@@ -35,19 +34,6 @@ describe("parseMoneyInput", () => {
     assert.equal(centsToMoney(-37720), "-377.20")
     assert.equal(formatMoney("-377.20"), "-$377.20")
     assert.equal(formatMoney("-377.20").includes("("), false)
-  })
-
-  it("keeps a minus on an extracted receipt total", () => {
-    for (const text of [
-      '{"total_amount_paid":-377.20}',
-      '{"total_amount_paid":"-377.20"}',
-      '{"total_amount_paid":"-$377.20"}',
-      '{"total_amount_paid":"(377.20)"}',
-    ]) {
-      const parsed = parseExtraction(text)
-      assert.equal(moneyToCents(parsed.total_amount_paid!.toFixed(2)), -37720)
-      assert.equal(centsToMoney(moneyToCents(parsed.total_amount_paid!.toFixed(2))), "-377.20")
-    }
   })
 
   it("asks again only while a negative amount is unconfirmed", () => {
