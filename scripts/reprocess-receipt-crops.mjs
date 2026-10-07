@@ -14,7 +14,7 @@
 
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { readFileSync } from "node:fs"
 
 const require = createRequire(import.meta.url)
@@ -356,7 +356,6 @@ function describe(row) {
 }
 
 async function processGroup(group, cropColumns) {
-  const primary = group.rows[0]
   const downloaded = await supabase.storage.from("receipts").download(group.path)
   if (downloaded.error || !downloaded.data) {
     throw new Error(downloaded.error?.message || "Could not download the receipt")
@@ -560,8 +559,8 @@ async function rasterizePdf(bytes) {
     disableWorker: true,
     isEvalSupported: false,
     useSystemFonts: true,
-    standardFontDataUrl: resolve(root, "node_modules/pdfjs-dist/standard_fonts/"),
-    cMapUrl: resolve(root, "node_modules/pdfjs-dist/cmaps/"),
+    standardFontDataUrl: factoryUrl(resolve(root, "node_modules/pdfjs-dist/standard_fonts")),
+    cMapUrl: factoryUrl(resolve(root, "node_modules/pdfjs-dist/cmaps")),
     cMapPacked: true,
   }).promise
   const pages = []
@@ -614,6 +613,11 @@ function contentTypeFor(extension) {
   return "image/jpeg"
 }
 
+function factoryUrl(directory) {
+  const href = pathToFileURL(directory).href
+  return href.endsWith("/") ? href : `${href}/`
+}
+
 function missingColumn(message) {
-  return /original_file_path|crop_method|crop_corners|needs_manual_crop|schema cache|column/i.test(message)
+  return /original_file_path|original_file_paths|crop_method|crop_corners|needs_manual_crop|schema cache/i.test(message)
 }
