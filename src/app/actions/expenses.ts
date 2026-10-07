@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 
+import { syncDuplicateFlag } from "@/lib/extract-receipt"
 import { deriveInvoiceBillingStatus } from "@/lib/labels"
 import { requireAdmin } from "@/lib/db"
 import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
@@ -271,6 +272,7 @@ export async function updateExpenseFields(input: {
 
   const { error } = await supabase.from("expenses").update(patch).eq("id", input.expenseId)
   if (error) return { error: error.message }
+  if (input.amount != null) await syncDuplicateFlag(input.projectId, input.expenseId)
   refresh(input.projectId)
   return { error: null }
 }
@@ -279,7 +281,7 @@ export async function clearDuplicate(projectId: string, expenseId: string) {
   const supabase = await requireAdmin()
   const { error } = await supabase
     .from("expenses")
-    .update({ verification_status: "needs_review", duplicate_of: null })
+    .update({ duplicate_of: null, duplicate_confirmed: true })
     .eq("id", expenseId)
   if (error) return { error: error.message }
   refresh(projectId)

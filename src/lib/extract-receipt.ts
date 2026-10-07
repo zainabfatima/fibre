@@ -3,7 +3,7 @@ import "server-only"
 import Anthropic from "@anthropic-ai/sdk"
 import { revalidatePath } from "next/cache"
 
-import { vendorsSimilar, shiftIsoDate } from "@/lib/duplicates"
+import { duplicateIdentityKey } from "@/lib/duplicates"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { centsToMoney, moneyToCents } from "@/lib/money"
 import {
@@ -82,7 +82,7 @@ export async function extractExpense(
       ? "These pages belong to ONE receipt or invoice. Use the FINAL total from the page that says Total, Amount Due, or Balance Due, usually the last page, not a page subtotal. Combine line items from all pages."
       : "Extract this receipt."
   const instruction = manualRequested
-    ? `${instructionBase} The category is already chosen by the user. Do not skip the receipt total. Return vendor, date, and total_amount_paid from this black-and-white receipt. total_amount_paid is the final amount paid whenever that total is visible.`
+    ? `${instructionBase} The category is already chosen by the user. Do not skip the receipt total. Return vendor, date, time, total_amount_paid, receipt_number, payment_method, and card_last4. total_amount_paid is the final amount paid whenever that total is visible.`
     : instructionBase
   const embedded = type === "application/pdf" ? extractEmbeddedImages(bytes) : []
   const imageMedia: ReceiptMedia[] = embedded.slice(0, 20).map((image) => ({
@@ -118,7 +118,7 @@ export async function extractExpense(
   const primary = imageMedia.length > 0 ? imageMedia : fileMedia
   const alternate = imageMedia.length > 0 && type === "application/pdf" ? fileMedia : null
   const amountPrompt =
-    "Read this black-and-white receipt. Return ONLY JSON: {\"vendor\":\"\",\"date\":\"YYYY-MM-DD or null\",\"total_amount_paid\":null}. total_amount_paid is the final amount paid (Total, Amount Due, or Balance Due). Use null if no total is visible. Do not guess a number."
+    "Read this black-and-white receipt. Return ONLY JSON: {\"vendor\":\"\",\"date\":\"YYYY-MM-DD or null\",\"time\":\"HH:MM or null\",\"total_amount_paid\":null,\"receipt_number\":null,\"payment_method\":null,\"card_last4\":null}. total_amount_paid is the final amount paid (Total, Amount Due, or Balance Due). Use null if no total is visible. Do not guess a number. card_last4 is only the last 4 digits."
 
   let rawText = ""
   try {
@@ -166,9 +166,11 @@ export async function extractExpense(
       .update({
         vendor: extracted?.vendor?.trim() || null,
         expense_date: extracted?.date ?? null,
+        receipt_time: extracted?.time ?? null,
         ...(paidCents != null ? { amount: centsToMoney(paidCents) } : {}),
         receipt_number: extracted?.receipt_number?.trim() || null,
         payment_method: extracted?.payment_method?.trim() || null,
+        card_last4: extracted?.card_last4 ?? null,
         description,
         category_id: manualRequested ? manualCategoryId : (suggestedIds[0] ?? null),
         ai_extracted: JSON.parse(JSON.stringify(storedExtraction(extracted, paidCents, rawText))),
@@ -181,7 +183,7 @@ export async function extractExpense(
 
     revalidatePath(`/projects/${expense.project_id}`)
     revalidatePath(`/projects/${expense.project_id}/review`)
-    await flagSoftDuplicate(expense.project_id, expenseId)
+    await syncDuplicateFlag(expense.project_id, expenseId)
     return {
       ok: true as const,
       confidence: extracted?.confidence ?? null,
@@ -263,8 +265,10 @@ function preferExtraction(primary: Extraction | null, fallback: Extraction | nul
     ...primary,
     vendor: primary.vendor?.trim() || fallback.vendor || "",
     date: primary.date ?? fallback.date ?? null,
+    time: primary.time ?? fallback.time ?? null,
     receipt_number: primary.receipt_number?.trim() || fallback.receipt_number,
     payment_method: primary.payment_method?.trim() || fallback.payment_method,
+    card_last4: primary.card_last4 || fallback.card_last4 || null,
     total_amount_paid: primary.total_amount_paid ?? fallback.total_amount_paid,
     line_items: primary.line_items.length > 0 ? primary.line_items : fallback.line_items,
     suggested_categories:
@@ -278,50 +282,265 @@ function storedExtraction(extracted: Extraction | null, paidCents: number | null
   return { ...extracted, total_amount_paid: total }
 }
 
-async function flagSoftDuplicate(projectId: string, expenseId: string) {
+const IDENTITY_SYSTEM = `You read a construction receipt and return ONLY JSON. No markdown.
+{
+  "receipt_number": "string or null",
+  "date": "YYYY-MM-DD or null",
+  "time": "HH:MM or null",
+  "total_amount_paid": null,
+  "payment_method": "cash, check, visa, mastercard, amex, discover, debit, or other",
+  "card_last4": "last 4 digits or null"
+}
+Do not guess. time is the printed transaction time in 24-hour HH:MM, or null. card_last4 is only the last 4 digits. Never return a full card number. payment_method is the payment type or card brand, not the card number.`
+
+function identityChecked(value: unknown) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as { duplicate_identity_checked?: unknown }).duplicate_identity_checked === true,
+  )
+}
+
+async function readReceiptIdentity(path: string) {
+  const supabase = createAdminClient()
+  const downloaded = await supabase.storage.from("receipts").download(path)
+  if (downloaded.error || !downloaded.data) {
+    throw new Error(downloaded.error?.message || "Could not read the receipt file")
+  }
+  const bytes = Buffer.from(await downloaded.data.arrayBuffer())
+  const type = mediaType(path, bytes)
+  const env = getServerEnv()
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  const media: ReceiptMedia[] =
+    type === "application/pdf"
+      ? [
+          {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: bytes.toString("base64") },
+          },
+        ]
+      : [
+          {
+            type: "image",
+            source: { type: "base64", media_type: type, data: bytes.toString("base64") },
+          },
+        ]
+  const text = await askClaude(client, env.ANTHROPIC_MODEL, IDENTITY_SYSTEM, media, "Extract the receipt identity fields.", 500)
+  const extracted = tryParseExtraction(text) ?? identityFromLooseText(text)
+  if (!extracted) throw new Error("Claude did not return receipt identity fields")
+  return extracted
+}
+
+function identityFromLooseText(text: string) {
+  const grab = (name: string) => {
+    const match = text.match(new RegExp(`"${name}"\\s*:\\s*(null|"[^"]*"|-?\\d+(?:\\.\\d+)?)`, "i"))
+    if (!match || match[1] === "null") return null
+    return match[1].replace(/^"|"$/g, "")
+  }
+  const receipt = grab("receipt_number")
+  const date = grab("date")
+  const time = grab("time")
+  const payment = grab("payment_method")
+  const card = grab("card_last4")
+  const amount = grab("total_amount_paid")
+  if (!receipt && !date && !time && !payment && !card && !amount) return null
+  const amountNumber = amount == null ? null : Number(amount.replace(/,/g, ""))
+  return tryParseExtraction(
+    JSON.stringify({
+      receipt_number: receipt,
+      date,
+      time,
+      payment_method: payment,
+      card_last4: card,
+      total_amount_paid: Number.isFinite(amountNumber) ? amountNumber : null,
+    }),
+  )
+}
+
+export async function scanAllReceiptIdentities(
+  onProgress?: (done: number, total: number, detail: string) => void,
+) {
+  const supabase = createAdminClient()
+  const { data: rows, error } = await supabase
+    .from("expenses")
+    .select("id, project_id, receipt_file_path, expense_date, receipt_number, payment_method, ai_extracted")
+    .order("created_at")
+  if (error) throw new Error(error.message)
+  const pending = (rows ?? []).filter((row) => row.receipt_file_path && !identityChecked(row.ai_extracted))
+  let done = 0
+  let failed = 0
+  const workerCount = Math.min(4, pending.length)
+  let cursor = 0
+
+  async function worker() {
+    while (cursor < pending.length) {
+      const index = cursor
+      cursor += 1
+      const row = pending[index]
+      if (!row) return
+      try {
+        const extracted = await readReceiptIdentity(row.receipt_file_path)
+        const previous =
+          row.ai_extracted && typeof row.ai_extracted === "object" && !Array.isArray(row.ai_extracted)
+            ? row.ai_extracted
+            : {}
+        const { error: updateError } = await supabase
+          .from("expenses")
+          .update({
+            receipt_time: extracted.time,
+            card_last4: extracted.card_last4,
+            ...(!row.expense_date && extracted.date ? { expense_date: extracted.date } : {}),
+            ...(!row.receipt_number && extracted.receipt_number?.trim()
+              ? { receipt_number: extracted.receipt_number.trim() }
+              : {}),
+            ...(!row.payment_method && extracted.payment_method?.trim()
+              ? { payment_method: extracted.payment_method.trim() }
+              : {}),
+            ai_extracted: {
+              ...previous,
+              duplicate_identity_checked: true,
+            },
+          })
+          .eq("id", row.id)
+        if (updateError) throw new Error(updateError.message)
+      } catch (cause) {
+        failed += 1
+        onProgress?.(
+          done,
+          pending.length,
+          cause instanceof Error ? cause.message : "Could not read a receipt",
+        )
+      } finally {
+        done += 1
+        if (done % 10 === 0 || done === pending.length) {
+          onProgress?.(done, pending.length, `${done} of ${pending.length} receipts read`)
+        }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  const flagged = await flagAllDuplicateReceipts()
+  return { scanned: pending.length - failed, failed, flagged }
+}
+
+export async function flagAllDuplicateReceipts() {
+  const supabase = createAdminClient()
+  const { data: rows, error } = await supabase
+    .from("expenses")
+    .select("id, project_id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id, duplicate_of, duplicate_confirmed, created_at")
+    .order("created_at")
+  if (error) throw new Error(error.message)
+
+  const groups = new Map<string, NonNullable<typeof rows>>()
+  const clear = new Set<string>()
+  for (const row of rows ?? []) {
+    let key: string | null = null
+    try {
+      key = duplicateIdentityKey({
+        receiptNumber: row.receipt_number,
+        expenseDate: row.expense_date,
+        receiptTime: row.receipt_time,
+        amountCents: moneyToCents(row.amount),
+        paymentMethod: row.payment_method,
+        cardLast4: row.card_last4,
+      })
+    } catch {
+      key = null
+    }
+    if (!key) {
+      if (row.duplicate_of && !row.duplicate_confirmed) clear.add(row.id)
+      continue
+    }
+    const bucket = groups.get(`${row.project_id}|${key}`) ?? []
+    bucket.push(row)
+    groups.set(`${row.project_id}|${key}`, bucket)
+  }
+
+  const pointAt = new Map<string, string>()
+  for (const bucket of groups.values()) {
+    if (bucket.length < 2) {
+      for (const row of bucket) {
+        if (row.duplicate_of && !row.duplicate_confirmed) clear.add(row.id)
+      }
+      continue
+    }
+    const [canonical, ...rest] = bucket
+    if (!canonical) continue
+    if (canonical.duplicate_of && !canonical.duplicate_confirmed) clear.add(canonical.id)
+    for (const other of rest) {
+      if (other.duplicate_confirmed) continue
+      if (canonical.split_group_id && other.split_group_id === canonical.split_group_id) {
+        if (other.duplicate_of) clear.add(other.id)
+        continue
+      }
+      pointAt.set(other.id, canonical.id)
+      clear.delete(other.id)
+    }
+  }
+
+  let flagged = 0
+  for (const [id, duplicateOf] of pointAt) {
+    const { error: updateError } = await supabase
+      .from("expenses")
+      .update({ duplicate_of: duplicateOf })
+      .eq("id", id)
+    if (updateError) throw new Error(updateError.message)
+    flagged += 1
+  }
+  for (const id of clear) {
+    if (pointAt.has(id)) continue
+    const { error: updateError } = await supabase.from("expenses").update({ duplicate_of: null }).eq("id", id)
+    if (updateError) throw new Error(updateError.message)
+  }
+  return flagged
+}
+
+export async function syncDuplicateFlag(projectId: string, expenseId: string) {
   const supabase = createAdminClient()
   const { data: current } = await supabase
     .from("expenses")
-    .select("*")
+    .select("id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id, duplicate_confirmed")
     .eq("id", expenseId)
     .maybeSingle()
-  if (!current?.expense_date || moneyToCents(current.amount) === 0) return
+  if (!current || current.duplicate_confirmed) return
 
-  const from = shiftIsoDate(current.expense_date, -3)
-  const to = shiftIsoDate(current.expense_date, 3)
+  const currentKey = duplicateIdentityKey({
+    receiptNumber: current.receipt_number,
+    expenseDate: current.expense_date,
+    receiptTime: current.receipt_time,
+    amountCents: moneyToCents(current.amount),
+    paymentMethod: current.payment_method,
+    cardLast4: current.card_last4,
+  })
+  if (!currentKey) {
+    await supabase.from("expenses").update({ duplicate_of: null }).eq("id", expenseId)
+    return
+  }
+
   const { data: candidates } = await supabase
     .from("expenses")
-    .select("id, vendor, amount, expense_date, receipt_number, split_group_id")
+    .select("id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id")
     .eq("project_id", projectId)
     .neq("id", expenseId)
 
   const match = (candidates ?? []).find((other) => {
-    if (
-      current.split_group_id &&
-      other.split_group_id === current.split_group_id
-    ) {
-      return false
-    }
-    const sameReceipt =
-      Boolean(current.receipt_number) &&
-      current.receipt_number === other.receipt_number &&
-      vendorsSimilar(current.vendor, other.vendor)
-    const sameMoney =
-      other.expense_date &&
-      other.expense_date >= from &&
-      other.expense_date <= to &&
-      moneyToCents(other.amount) === moneyToCents(current.amount) &&
-      vendorsSimilar(current.vendor, other.vendor)
-    return sameReceipt || sameMoney
+    if (current.split_group_id && other.split_group_id === current.split_group_id) return false
+    const otherKey = duplicateIdentityKey({
+      receiptNumber: other.receipt_number,
+      expenseDate: other.expense_date,
+      receiptTime: other.receipt_time,
+      amountCents: moneyToCents(other.amount),
+      paymentMethod: other.payment_method,
+      cardLast4: other.card_last4,
+    })
+    return otherKey != null && otherKey === currentKey
   })
 
-  if (!match) return
   await supabase
     .from("expenses")
-    .update({
-      verification_status: "flagged",
-      duplicate_of: match.id,
-    })
+    .update({ duplicate_of: match?.id ?? null })
     .eq("id", expenseId)
 }
 

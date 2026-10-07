@@ -34,14 +34,21 @@ const suggestionSchema = z.object({
   reason: z.string().optional().default(""),
 })
 
+function nullableText(value: unknown) {
+  if (value == null || value === "") return null
+  return String(value)
+}
+
 export const extractionSchema = z.object({
-  vendor: z.string().optional().nullable().default(""),
-  date: z.string().optional().nullable(),
+  vendor: z.preprocess(nullableText, z.string().nullable().optional().default("")),
+  date: z.preprocess(nullableText, z.string().nullable().optional()),
   total_amount_paid: z.coerce.number().optional().nullable(),
   subtotal: z.coerce.number().optional().nullable(),
   tax: z.coerce.number().optional().nullable(),
-  receipt_number: z.string().optional().nullable(),
-  payment_method: z.string().optional().nullable(),
+  receipt_number: z.preprocess(nullableText, z.string().nullable().optional()),
+  time: z.preprocess(nullableText, z.string().nullable().optional().default(null)),
+  payment_method: z.preprocess(nullableText, z.string().nullable().optional()),
+  card_last4: z.preprocess(nullableText, z.string().nullable().optional().default(null)),
   line_items: z.array(lineItemSchema).optional().default([]),
   suggested_categories: z.array(suggestionSchema).optional().default([]),
   split_suggested: z.coerce.boolean().optional().default(false),
@@ -77,11 +84,33 @@ export function parseExtraction(text: string) {
   const data = parsed.data
   const date =
     data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : null
+  const time = normalizeReceiptTime(data.time)
+  const card_last4 = normalizeCardLast4(data.card_last4)
   let confidence = Number.isFinite(data.confidence) ? data.confidence : 0
   if (!date || data.total_amount_paid == null) confidence = Math.min(confidence, 0.69)
   const codes = data.suggested_categories.slice(0, 3)
   if (codes.some((item) => item.code === 59)) confidence = Math.min(confidence, 0.59)
-  return { ...data, date, confidence, suggested_categories: codes }
+  return { ...data, date, time, card_last4, confidence, suggested_categories: codes }
+}
+
+export function normalizeReceiptTime(value: string | null | undefined) {
+  if (!value) return null
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?$/)
+  if (!match) return null
+  let hour = Number(match[1])
+  const minute = Number(match[2])
+  const suffix = match[3]?.toLowerCase()
+  if (suffix === "pm" && hour < 12) hour += 12
+  if (suffix === "am" && hour === 12) hour = 0
+  if (hour > 23 || minute > 59) return null
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`
+}
+
+export function normalizeCardLast4(value: string | null | undefined) {
+  if (!value) return null
+  const digits = value.replace(/\D/g, "")
+  if (digits.length < 4) return null
+  return digits.slice(-4)
 }
 
 export function categoryPromptList(
@@ -102,6 +131,9 @@ Use the FINAL amount actually paid (after tax and discounts), not the subtotal, 
 Pick up to 3 category codes ONLY from the list below.
 Set confidence below 0.7 when the amount or date is unclear.
 Dates must be YYYY-MM-DD or null.
+time is the transaction time printed on the receipt, 24-hour HH:MM, or null when no time is printed.
+card_last4 is only the last 4 digits of the card. Never return a full card number. Use null when no card is printed.
+payment_method is the payment type or card brand, not the card number.
 
 JSON shape:
 {
@@ -111,7 +143,9 @@ JSON shape:
   "subtotal": 0.00,
   "tax": 0.00,
   "receipt_number": "string or null",
-  "payment_method": "string or null",
+  "time": "HH:MM or null",
+  "payment_method": "cash, check, visa, mastercard, amex, discover, debit, or other",
+  "card_last4": "last 4 digits or null",
   "line_items": [{"description": "string", "amount": 0.00, "category_code": 0}],
   "suggested_categories": [{"code": 0, "reason": "string"}],
   "split_suggested": false,

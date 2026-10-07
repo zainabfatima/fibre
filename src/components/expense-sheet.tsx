@@ -33,6 +33,11 @@ export type SheetRow = {
   categoryCode: number | null
   categoryName: string | null
   amount: string
+  receiptNumber: string | null
+  receiptTime: string | null
+  paymentMethod: string | null
+  cardLast4: string | null
+  duplicateOf: string | null
   thumbUrl: string | null
   invoiceId: string | null
   invoiceNumber: string | null

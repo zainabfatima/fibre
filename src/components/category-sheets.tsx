@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
-import { assignInvoiceNumber, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
+import { assignInvoiceNumber, clearDuplicate, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { useExpenseSearch } from "@/components/expense-amount-search"
@@ -98,6 +98,15 @@ export function CategorySheets({
     else router.refresh()
   }
 
+  async function confirmNotDuplicate(row: SheetRow) {
+    const result = await clearDuplicate(projectId, row.id)
+    if (result.error) toast.error(result.error)
+    else {
+      toast.success("Marked as not a duplicate")
+      router.refresh()
+    }
+  }
+
   async function removeReceipt(row: SheetRow) {
     const label = row.vendor?.trim() || "this receipt"
     if (!window.confirm(`Delete ${label}?`)) return
@@ -127,6 +136,7 @@ export function CategorySheets({
           onStatus={saveStatus}
           onCategory={saveCategory}
           onDelete={removeReceipt}
+          onConfirmDuplicate={confirmNotDuplicate}
         />
       ))}
       {uncategorized.length > 0 ? (
@@ -146,6 +156,7 @@ export function CategorySheets({
           onStatus={saveStatus}
           onCategory={saveCategory}
           onDelete={removeReceipt}
+          onConfirmDuplicate={confirmNotDuplicate}
         />
       ) : null}
       {preview ? (
@@ -218,6 +229,7 @@ function CategoryBlock({
   onStatus,
   onCategory,
   onDelete,
+  onConfirmDuplicate,
 }: {
   title: string
   budget?: string | number | null
@@ -235,6 +247,7 @@ function CategoryBlock({
   onStatus: (row: SheetRow, status: "unpaid" | "paid" | "partial") => void
   onCategory: (row: SheetRow, categoryId: number) => void
   onDelete: (row: SheetRow) => void
+  onConfirmDuplicate: (row: SheetRow) => void
 }) {
   const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -270,8 +283,11 @@ function CategoryBlock({
             <article
               key={row.id}
               data-expense-id={row.id}
-              className={`scroll-mt-48 border-b border-border/70 p-3 ${expenseHighlight(matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(Boolean(row.duplicateOf), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
             >
+              {row.duplicateOf ? (
+                <DuplicateNotice row={row} onConfirm={() => onConfirmDuplicate(row)} />
+              ) : null}
               <div className="flex items-start gap-3">
                 <button
                   type="button"
@@ -424,10 +440,17 @@ function CategoryBlock({
             </thead>
             <tbody>
               {rows.map((row) => (
+                <Fragment key={row.id}>
+                {row.duplicateOf ? (
+                  <tr className="bg-red-50 dark:bg-red-950/40">
+                    <td colSpan={invoiceTracking ? 9 : 6} className="px-3 py-2">
+                      <DuplicateNotice row={row} onConfirm={() => onConfirmDuplicate(row)} />
+                    </td>
+                  </tr>
+                ) : null}
                 <tr
-                  key={row.id}
                   data-expense-id={row.id}
-                  className={`scroll-mt-48 border-b border-border/70 ${expenseHighlight(matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(Boolean(row.duplicateOf), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
@@ -519,6 +542,7 @@ function CategoryBlock({
                     </>
                   ) : null}
                 </tr>
+                </Fragment>
               ))}
               <tr className="bg-muted/60 font-medium">
                 <td className="px-3 py-2" colSpan={2}>
@@ -560,6 +584,49 @@ function CategoryPdfLink({
     >
       Category PDF
     </a>
+  )
+}
+
+function rowSurface(duplicate: boolean, matched: boolean, active: boolean) {
+  if (duplicate) return "bg-red-50 ring-1 ring-inset ring-red-400 dark:bg-red-950/40"
+  return expenseHighlight(matched, active)
+}
+
+function DuplicateNotice({ row, onConfirm }: { row: SheetRow; onConfirm: () => void }) {
+  const when = [row.date, row.receiptTime].filter(Boolean).join(" ")
+  const detail = [
+    row.receiptNumber ? `#${row.receiptNumber}` : null,
+    when || null,
+    formatMoney(row.amount),
+    row.paymentMethod,
+    row.cardLast4 ? `card ${row.cardLast4}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+  return (
+    <div className="mb-3 grid gap-2 rounded-lg bg-red-100 p-3 text-sm text-red-950 dark:bg-red-950 dark:text-red-50 md:mb-0">
+      <p className="font-medium">Possible duplicate</p>
+      <p>Receipt number, date, time, amount, payment method, and card ending match another receipt. {detail}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
+        >
+          Not a duplicate
+        </button>
+        <label className="inline-flex min-h-11 items-center gap-2">
+          <input
+            type="checkbox"
+            onChange={(event) => {
+              if (event.target.checked) onConfirm()
+            }}
+            className="size-5"
+          />
+          Confirmed
+        </label>
+      </div>
+    </div>
   )
 }
 

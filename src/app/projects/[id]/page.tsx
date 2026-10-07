@@ -54,6 +54,11 @@ export default async function ProjectExpensesPage({
     categoryCode: row.category_code,
     categoryName: row.category_name,
     amount: centsToMoney(moneyToCents(row.amount)),
+    receiptNumber: row.receipt_number,
+    receiptTime: row.receipt_time,
+    paymentMethod: row.payment_method,
+    cardLast4: row.card_last4,
+    duplicateOf: row.duplicate_of,
     thumbUrl: row.receipt_thumbnail_path
       ? (thumbByPath.get(row.receipt_thumbnail_path) ?? null)
       : null,

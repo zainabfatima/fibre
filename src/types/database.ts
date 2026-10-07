@@ -203,10 +203,12 @@ export type Database = {
           category_id: number | null
           vendor: string | null
           expense_date: string | null
+          receipt_time: string | null
           amount: number
           receipt_number: string | null
           description: string | null
           payment_method: string | null
+          card_last4: string | null
           receipt_file_path: string
           receipt_file_hash: string
           receipt_thumbnail_path: string | null
@@ -217,6 +219,7 @@ export type Database = {
           ai_confidence: number | null
           verification_status: VerificationStatus
           duplicate_of: string | null
+          duplicate_confirmed: boolean
           created_at: string
           updated_at: string
           created_by: string | null
@@ -231,10 +234,12 @@ export type Database = {
           category_id?: number | null
           vendor?: string | null
           expense_date?: string | null
+          receipt_time?: string | null
           amount?: Money
           receipt_number?: string | null
           description?: string | null
           payment_method?: string | null
+          card_last4?: string | null
           receipt_file_path: string
           receipt_file_hash: string
           receipt_thumbnail_path?: string | null
@@ -245,6 +250,7 @@ export type Database = {
           ai_confidence?: number | null
           verification_status?: VerificationStatus
           duplicate_of?: string | null
+          duplicate_confirmed?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -259,10 +265,12 @@ export type Database = {
           category_id?: number | null
           vendor?: string | null
           expense_date?: string | null
+          receipt_time?: string | null
           amount?: Money
           receipt_number?: string | null
           description?: string | null
           payment_method?: string | null
+          card_last4?: string | null
           receipt_file_path?: string
           receipt_file_hash?: string
           receipt_thumbnail_path?: string | null
@@ -273,6 +281,7 @@ export type Database = {
           ai_confidence?: number | null
           verification_status?: VerificationStatus
           duplicate_of?: string | null
+          duplicate_confirmed?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -355,10 +364,12 @@ export type Database = {
           category_sort_order: number | null
           vendor: string | null
           expense_date: string | null
+          receipt_time: string | null
           amount: number
           receipt_number: string | null
           description: string | null
           payment_method: string | null
+          card_last4: string | null
           receipt_file_path: string
           receipt_file_hash: string
           receipt_thumbnail_path: string | null
@@ -375,6 +386,7 @@ export type Database = {
           ai_confidence: number | null
           verification_status: VerificationStatus
           duplicate_of: string | null
+          duplicate_confirmed: boolean
           created_at: string
           updated_at: string
           created_by: string | null
