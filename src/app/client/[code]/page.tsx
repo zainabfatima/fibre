@@ -1,13 +1,17 @@
 import { notFound } from "next/navigation"
 
-import { ClientExpenses } from "@/components/client-expenses"
+import { CategoryChart } from "@/components/category-chart"
+import { CategorySheets } from "@/components/category-sheets"
+import { ExpenseAmountSearchBar, ExpenseSearchProvider } from "@/components/expense-amount-search"
+import { type SheetRow } from "@/components/expense-sheet"
 import { ClientLoginForm } from "@/components/client-login-form"
 import { ClientShell } from "@/components/client-shell"
+import { MoneySummary } from "@/components/money-summary"
 import { findProjectByClientCode } from "@/lib/client-access"
 import { isClientCode } from "@/lib/client-code"
 import { getClientProjectCode } from "@/lib/client-session"
 import { formatCategory } from "@/lib/format"
-import { moneyToCents, sumCents } from "@/lib/money"
+import { centsToMoney, moneyToCents, sumCents } from "@/lib/money"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
@@ -55,7 +59,6 @@ export default async function ClientProjectPage({
         .from("v_expense_rows")
         .select("*")
         .eq("project_id", project.id)
-        .eq("verification_status", "verified")
         .order("expense_date", { ascending: false, nullsFirst: false }),
       admin.from("v_project_category_totals").select("*").eq("project_id", project.id).order("code"),
       admin.from("client_payments").select("amount").eq("project_id", project.id),
@@ -66,55 +69,89 @@ export default async function ClientProjectPage({
   if (paymentError) throw new Error(paymentError.message)
   if (summaryError) throw new Error(summaryError.message)
 
-  const rows = expenses ?? []
-  const paths = rows
+  const thumbs = (expenses ?? [])
     .map((row) => row.receipt_thumbnail_path)
     .filter((path): path is string => Boolean(path))
-  const signed = paths.length
-    ? await admin.storage.from("receipts").createSignedUrls(paths, 1800)
-    : { data: [] }
-  const thumbs = new Map(
-    (signed.data ?? []).flatMap((item) =>
-      item.path && item.signedUrl ? [[item.path, item.signedUrl] as const] : [],
-    ),
-  )
-  const items = rows.map((row) => ({
+  const thumbByPath = new Map<string, string>()
+  for (let index = 0; index < thumbs.length; index += 80) {
+    const batch = thumbs.slice(index, index + 80)
+    const signed = await admin.storage.from("receipts").createSignedUrls(batch, 60 * 30)
+    for (const item of signed.data ?? []) {
+      if (item.path && item.signedUrl) thumbByPath.set(item.path, item.signedUrl)
+    }
+  }
+
+  const rows: SheetRow[] = (expenses ?? []).map((row) => ({
     id: row.id,
     date: row.expense_date,
     vendor: row.vendor,
-    amount: row.amount,
+    description: row.description,
     categoryId: row.category_id,
-    thumbUrl: row.receipt_thumbnail_path ? (thumbs.get(row.receipt_thumbnail_path) ?? null) : null,
+    categoryCode: row.category_code,
+    categoryName: row.category_name,
+    amount: centsToMoney(moneyToCents(row.amount)),
+    receiptNumber: row.receipt_number,
+    receiptTime: row.receipt_time,
+    paymentMethod: row.payment_method,
+    cardLast4: row.card_last4,
+    duplicateOf: null,
+    thumbUrl: row.receipt_thumbnail_path ? (thumbByPath.get(row.receipt_thumbnail_path) ?? null) : null,
     invoiceId: row.invoice_id,
     invoiceNumber: row.invoice_number,
     hasInvoiceFile: Boolean(row.invoice_file_path),
+    invoiceStatus: row.invoice_status ?? "not_invoiced",
     billingStatus: row.billing_status,
+    verificationStatus: row.verification_status,
+    hasReceipt: Boolean(row.receipt_file_path),
     pageCount: row.page_count,
   }))
-  const grouped = new Map<number | null, typeof items>()
-  for (const item of items) {
-    const list = grouped.get(item.categoryId) ?? []
-    list.push(item)
-    grouped.set(item.categoryId, list)
-  }
-  const sections = (totals ?? []).map((category) => ({
-    id: category.category_id,
-    title: formatCategory(category.code, category.name),
-    budget: category.budget ?? 0,
-    rows: grouped.get(category.category_id) ?? [],
+  const sheetCategories = (totals ?? []).map((row) => ({
+    id: row.category_id,
+    code: row.code,
+    name: row.name,
+    budget: row.budget ?? 0,
   }))
+  const chart = (totals ?? [])
+    .map((row) => ({
+      label: formatCategory(row.code, row.name),
+      name: formatCategory(row.code, row.name),
+      cents: moneyToCents(row.total_spent),
+      code: row.code,
+    }))
+    .sort((a, b) => {
+      if (a.cents === 0 && b.cents === 0) return a.code - b.code
+      if (a.cents === 0) return 1
+      if (b.cents === 0) return -1
+      return b.cents - a.cents || a.code - b.code
+    })
 
   return (
     <ClientShell leave>
-      <ClientExpenses
-        name={project.name}
-        address={project.address}
-        spentCents={moneyToCents(summary?.total_spent ?? 0)}
-        receivedCents={sumCents((payments ?? []).map((payment) => payment.amount))}
-        sections={sections}
-        uncategorized={grouped.get(null) ?? []}
-        invoiceTracking={project.invoice_tracking}
-      />
+      <ExpenseSearchProvider categories={sheetCategories} rows={rows}>
+        <div className="px-4 pt-2">
+          <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
+          <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
+        </div>
+        <div className="grid gap-4 px-4">
+          <MoneySummary
+            spentCents={moneyToCents(summary?.total_spent ?? 0)}
+            receivedCents={sumCents((payments ?? []).map((payment) => payment.amount))}
+          />
+        </div>
+        <ExpenseAmountSearchBar />
+        <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
+          <h2 className="mb-4 font-medium">Expense by category</h2>
+          <CategoryChart rows={chart} />
+        </section>
+        <CategorySheets
+          projectId={project.id}
+          categories={sheetCategories}
+          rows={rows}
+          invoiceTracking={project.invoice_tracking}
+          mode="all"
+          readOnly
+        />
+      </ExpenseSearchProvider>
     </ClientShell>
   )
 }

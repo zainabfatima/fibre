@@ -22,12 +22,14 @@ export function CategorySheets({
   rows,
   invoiceTracking,
   mode,
+  readOnly = false,
 }: {
   projectId: string
   categories: CategoryOption[]
   rows: SheetRow[]
   invoiceTracking: boolean
   mode: "all" | "needs"
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const [preview, setPreview] = useState<SheetRow | null>(null)
@@ -139,6 +141,7 @@ export function CategorySheets({
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
           allRows={rows}
+          readOnly={readOnly}
         />
       ))}
       {uncategorized.length > 0 ? (
@@ -160,6 +163,7 @@ export function CategorySheets({
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
           allRows={rows}
+          readOnly={readOnly}
         />
       ) : null}
       {preview ? (
@@ -191,12 +195,17 @@ function AmountInput({
   highlighted,
   onAmount,
   className,
+  readOnly,
 }: {
   row: SheetRow
   highlighted: boolean
   onAmount: (row: SheetRow, value: string) => void
   className: string
+  readOnly: boolean
 }) {
+  if (readOnly) {
+    return <p className="text-right font-semibold tabular-nums">{formatMoney(row.amount)}</p>
+  }
   return (
     <input
       key={`${row.id}-${row.amount}`}
@@ -234,6 +243,7 @@ function CategoryBlock({
   onDelete,
   onConfirmDuplicate,
   allRows,
+  readOnly,
 }: {
   title: string
   budget?: string | number | null
@@ -253,6 +263,7 @@ function CategoryBlock({
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
   allRows: SheetRow[]
+  readOnly: boolean
 }) {
   const total = formatMoney(centsToMoney(sumCents(rows.map((row) => row.amount))))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -288,9 +299,9 @@ function CategoryBlock({
             <article
               key={row.id}
               data-expense-id={row.id}
-              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(!readOnly && isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
             >
-              {isDuplicatePair(row, allRows) ? (
+              {!readOnly && isDuplicatePair(row, allRows) ? (
                 <DuplicateNotice
                   row={row}
                   others={pairedReceipts(row, allRows)}
@@ -322,6 +333,7 @@ function CategoryBlock({
                       row={row}
                       highlighted={matchIds.includes(row.id)}
                       onAmount={onAmount}
+                      readOnly={readOnly}
                       className="h-11 w-36 shrink-0 rounded-lg border px-2 text-right text-base font-semibold tabular-nums"
                     />
                   </div>
@@ -357,6 +369,7 @@ function CategoryBlock({
                   </span>
                 ) : null}
               </div>
+              {readOnly ? null : (
               <details className="mt-2">
                 <summary className="min-h-11 cursor-pointer list-none py-2 text-sm font-medium text-muted-foreground">
                   Edit this expense
@@ -421,6 +434,7 @@ function CategoryBlock({
                   </div>
                 </div>
               </details>
+              )}
             </article>
           ))}
           <div className="bg-muted/60 px-3 py-3">
@@ -438,8 +452,12 @@ function CategoryBlock({
                 <th className="px-3 py-2 font-medium">Vendor</th>
                 <th className="px-3 py-2 font-medium">Amount</th>
                 <th className="px-3 py-2 font-medium">Receipt</th>
-                <th className="px-3 py-2 font-medium">Change category</th>
-                <th className="px-3 py-2 font-medium">Delete</th>
+                {readOnly ? null : (
+                  <>
+                    <th className="px-3 py-2 font-medium">Change category</th>
+                    <th className="px-3 py-2 font-medium">Delete</th>
+                  </>
+                )}
                 {invoiceTracking ? (
                   <>
                     <th className="px-3 py-2 font-medium">Invoice #</th>
@@ -452,7 +470,7 @@ function CategoryBlock({
             <tbody>
               {rows.map((row) => (
                 <Fragment key={row.id}>
-                {isDuplicatePair(row, allRows) ? (
+                {isDuplicatePair(row, allRows) && !readOnly ? (
                   <tr className="bg-red-50 dark:bg-red-950/40">
                     <td colSpan={invoiceTracking ? 9 : 6} className="px-3 py-2">
                       <DuplicateNotice
@@ -467,7 +485,7 @@ function CategoryBlock({
                 ) : null}
                 <tr
                   data-expense-id={row.id}
-                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(!readOnly && isDuplicatePair(row, allRows), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
@@ -476,6 +494,7 @@ function CategoryBlock({
                       row={row}
                       highlighted={matchIds.includes(row.id)}
                       onAmount={onAmount}
+                      readOnly={readOnly}
                       className="h-9 w-36 rounded-lg border px-2 text-right text-sm tabular-nums"
                     />
                   </td>
@@ -489,6 +508,8 @@ function CategoryBlock({
                       )}
                     </button>
                   </td>
+                  {readOnly ? null : (
+                    <>
                   <td className="px-3 py-2">
                     <ChangeCategoryCell
                       categories={categories}
@@ -505,7 +526,26 @@ function CategoryBlock({
                       Delete
                     </button>
                   </td>
+                    </>
+                  )}
                   {invoiceTracking ? (
+                    readOnly ? (
+                      <>
+                        <td className="px-3 py-2">{row.invoiceNumber || "—"}</td>
+                        <td className="px-3 py-2">
+                          <StatusBadge kind="invoice" status={row.invoiceId ? row.billingStatus : "not_invoiced"} />
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.invoiceId && row.hasInvoiceFile ? (
+                            <a href={`/i/${row.invoiceId}`} target="_blank" rel="noreferrer" className="underline">
+                              View
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </>
+                    ) : (
                     <>
                       <td className="px-3 py-2">
                         <input
@@ -557,6 +597,7 @@ function CategoryBlock({
                         )}
                       </td>
                     </>
+                    )
                   ) : null}
                 </tr>
                 </Fragment>
@@ -566,7 +607,7 @@ function CategoryBlock({
                   Spent
                 </td>
                 <td className="px-3 py-2 tabular-nums">{total}</td>
-                <td className="px-3 py-2" colSpan={invoiceTracking ? 6 : 3}>
+                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 3) + (invoiceTracking ? 3 : 0)}>
                   <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
                 </td>
               </tr>

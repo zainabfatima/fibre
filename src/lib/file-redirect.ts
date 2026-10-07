@@ -56,14 +56,12 @@ export async function openReceipt(request: Request, expenseId: string, tokenFrom
   const admin = createAdminClient()
   const { data } = await admin
     .from("expenses")
-    .select("project_id, receipt_file_path, verification_status")
+    .select("project_id, receipt_file_path")
     .eq("id", expenseId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Receipt not found" }, { status: 404 })
   const fibre = Boolean(await getSessionToken())
-  const clientAllowed = fibre
-    ? false
-    : (await clientSessionOwnsProject(data.project_id)) && data.verification_status === "verified"
+  const clientAllowed = fibre ? false : await clientSessionOwnsProject(data.project_id)
   return sendStoredFile(
     request,
     "receipts",

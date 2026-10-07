@@ -28,7 +28,7 @@ export function ClientShell({
           ) : null}
         </div>
       </header>
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-6">
+      <main className={`mx-auto flex w-full flex-col gap-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:py-6 ${leave ? "max-w-7xl" : "max-w-6xl px-3 sm:px-4"}`}>
         {children}
       </main>
     </div>
