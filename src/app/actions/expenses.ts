@@ -195,30 +195,211 @@ export async function saveScannedReceipt(formData: FormData) {
   return { id }
 }
 
+function storageType(path: string) {
+  const lower = path.toLowerCase()
+  if (lower.endsWith(".png")) return "image/png"
+  if (lower.endsWith(".webp")) return "image/webp"
+  if (lower.endsWith(".pdf")) return "application/pdf"
+  return "image/jpeg"
+}
+
+function extensionOf(path: string) {
+  const match = path.toLowerCase().match(/\.([a-z0-9]+)$/)
+  return match?.[1] || "jpg"
+}
+
+function asPathList(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+}
+
 export async function replaceScannedFile(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "")
   const expenseId = String(formData.get("expenseId") ?? "")
   const file = formData.get("file")
-  if (!(file instanceof File) || !projectId || !expenseId) return { error: "The replacement scan is missing" }
+  const thumb = formData.get("thumb")
+  if (!(file instanceof File) || file.size === 0 || !projectId || !expenseId) {
+    return { error: "The replacement scan is missing" }
+  }
   const supabase = await requireAdmin()
-  const { data } = await supabase
+  const wide = await supabase
     .from("expenses")
-    .select("receipt_file_path")
+    .select("receipt_file_path, receipt_thumbnail_path, original_file_path, original_file_paths")
     .eq("id", expenseId)
     .eq("project_id", projectId)
     .maybeSingle()
-  if (!data) return { error: "Receipt not found" }
+
+  let receiptPath = ""
+  let previousThumb: string | null = null
+  let hasCropColumns = false
+  let hasOriginal = false
+  if (!wide.error && wide.data?.receipt_file_path) {
+    receiptPath = wide.data.receipt_file_path
+    previousThumb = wide.data.receipt_thumbnail_path
+    hasCropColumns = true
+    hasOriginal = Boolean(wide.data.original_file_path) || asPathList(wide.data.original_file_paths).length > 0
+  } else {
+    const narrow = await supabase
+      .from("expenses")
+      .select("receipt_file_path, receipt_thumbnail_path")
+      .eq("id", expenseId)
+      .eq("project_id", projectId)
+      .maybeSingle()
+    if (narrow.error || !narrow.data?.receipt_file_path) return { error: narrow.error?.message ?? "Receipt not found" }
+    receiptPath = narrow.data.receipt_file_path
+    previousThumb = narrow.data.receipt_thumbnail_path
+  }
+
   const extension = file.type === "image/png" ? "png" : file.type === "application/pdf" ? "pdf" : file.type === "image/webp" ? "webp" : "jpg"
-  const path = data.receipt_file_path.replace(/\.[^.]+$/, `.${extension}`)
-  const uploaded = await supabase.storage.from("receipts").upload(path, Buffer.from(await file.arrayBuffer()), {
+  const slash = receiptPath.lastIndexOf("/")
+  const folder = slash >= 0 ? receiptPath.slice(0, slash) : projectId
+  const nextPath = `${folder}/${crypto.randomUUID()}.${extension}`
+  const fileBytes = Buffer.from(await file.arrayBuffer())
+
+  let previousBytes: Buffer | null = null
+  if (hasCropColumns && !hasOriginal) {
+    const downloaded = await supabase.storage.from("receipts").download(receiptPath)
+    if (!downloaded.error && downloaded.data && downloaded.data.size > 0) {
+      previousBytes = Buffer.from(await downloaded.data.arrayBuffer())
+    }
+  }
+
+  const uploaded = await supabase.storage.from("receipts").upload(nextPath, fileBytes, {
     contentType: file.type || "image/jpeg",
-    upsert: true,
+    upsert: false,
   })
   if (uploaded.error) return { error: uploaded.error.message }
-  if (path !== data.receipt_file_path) {
-    await supabase.storage.from("receipts").remove([data.receipt_file_path])
-    await supabase.from("expenses").update({ receipt_file_path: path, file_type: extension === "pdf" ? "pdf" : "image" }).eq("id", expenseId)
+
+  let originalPath: string | null = null
+  if (previousBytes) {
+    const originalExt = extensionOf(receiptPath)
+    const candidate = `${projectId}/0/${expenseId}.${originalExt}`
+    const first = await supabase.storage.from("receipt-originals").upload(candidate, previousBytes, {
+      contentType: storageType(receiptPath),
+      upsert: false,
+    })
+    if (!first.error) {
+      originalPath = candidate
+    } else {
+      const retryPath = `${projectId}/0/${expenseId}-${crypto.randomUUID()}.${originalExt}`
+      const retry = await supabase.storage.from("receipt-originals").upload(retryPath, previousBytes, {
+        contentType: storageType(receiptPath),
+        upsert: false,
+      })
+      if (!retry.error) originalPath = retryPath
+    }
   }
+
+  let nextThumb: string | null = null
+  if (thumb instanceof File && thumb.size > 0) {
+    nextThumb = `${projectId}/thumbs/${crypto.randomUUID()}.webp`
+    const thumbUpload = await supabase.storage.from("receipts").upload(nextThumb, Buffer.from(await thumb.arrayBuffer()), {
+      contentType: thumb.type || "image/webp",
+      upsert: false,
+    })
+    if (thumbUpload.error) nextThumb = null
+  }
+
+  const cropMethodRaw = String(formData.get("cropMethod") ?? "")
+  const cropMethod =
+    cropMethodRaw === "auto" || cropMethodRaw === "fallback" || cropMethodRaw === "manual" || cropMethodRaw === "none"
+      ? cropMethodRaw
+      : null
+  let cropCorners: Database["public"]["Tables"]["expenses"]["Update"]["crop_corners"] = null
+  const cornersRaw = String(formData.get("cropCorners") ?? "")
+  if (cornersRaw) {
+    try {
+      const parsed = JSON.parse(cornersRaw) as unknown
+      if (Array.isArray(parsed)) cropCorners = parsed as Database["public"]["Tables"]["expenses"]["Update"]["crop_corners"]
+    } catch {
+      cropCorners = null
+    }
+  }
+  const pageCountRaw = Number(formData.get("pageCount") ?? "")
+  const pageCount = Number.isInteger(pageCountRaw) && pageCountRaw >= 1 && pageCountRaw <= 20 ? pageCountRaw : null
+
+  const filePatch: Database["public"]["Tables"]["expenses"]["Update"] = {
+    receipt_file_path: nextPath,
+    file_type: extension === "pdf" ? "pdf" : "image",
+  }
+  if (nextThumb) filePatch.receipt_thumbnail_path = nextThumb
+  if (pageCount) filePatch.page_count = pageCount
+
+  const fullPatch: Database["public"]["Tables"]["expenses"]["Update"] = { ...filePatch }
+  if (cropMethod) {
+    fullPatch.crop_method = cropMethod
+    fullPatch.needs_manual_crop = cropMethod === "none"
+  }
+  if (cropCorners) fullPatch.crop_corners = cropCorners
+  if (originalPath) {
+    fullPatch.original_file_path = originalPath
+    fullPatch.original_file_paths = [originalPath]
+  }
+
+  const created = [nextPath, nextThumb].filter((path): path is string => Boolean(path))
+  async function rollback() {
+    await supabase.storage.from("receipts").remove(created)
+    if (originalPath) await supabase.storage.from("receipt-originals").remove([originalPath])
+  }
+
+  let recordedOriginal = false
+  let savedThumb = false
+  const sameFile = () => supabase.from("expenses").update({ receipt_file_path: nextPath }).eq("project_id", projectId).eq("receipt_file_path", receiptPath).select("id")
+  const primary = await supabase
+    .from("expenses")
+    .update(hasCropColumns ? fullPatch : filePatch)
+    .eq("project_id", projectId)
+    .eq("receipt_file_path", receiptPath)
+    .select("id")
+  const primaryWrote = !primary.error && (primary.data?.length ?? 0) > 0
+  if (primaryWrote) {
+    recordedOriginal = Boolean(originalPath)
+    savedThumb = Boolean(nextThumb)
+  } else if (hasCropColumns && primary.error) {
+    const basic = await supabase
+      .from("expenses")
+      .update(filePatch)
+      .eq("project_id", projectId)
+      .eq("receipt_file_path", receiptPath)
+      .select("id")
+    if (!basic.error && (basic.data?.length ?? 0) > 0) {
+      savedThumb = Boolean(nextThumb)
+    } else if (basic.error) {
+      const pathOnly = await sameFile()
+      if (pathOnly.error || (pathOnly.data?.length ?? 0) === 0) {
+        await rollback()
+        return { error: pathOnly.error?.message ?? "Receipt not found" }
+      }
+      if (nextThumb) await supabase.storage.from("receipts").remove([nextThumb])
+      nextThumb = null
+    } else {
+      await rollback()
+      return { error: "Receipt not found" }
+    }
+    if (originalPath) {
+      await supabase.storage.from("receipt-originals").remove([originalPath])
+      originalPath = null
+    }
+  } else if (primary.error) {
+    const pathOnly = await sameFile()
+    if (pathOnly.error || (pathOnly.data?.length ?? 0) === 0) {
+      await rollback()
+      return { error: pathOnly.error?.message ?? "Receipt not found" }
+    }
+    if (nextThumb) await supabase.storage.from("receipts").remove([nextThumb])
+    nextThumb = null
+  } else {
+    await rollback()
+    return { error: "Receipt not found" }
+  }
+
+  if ((hasOriginal || recordedOriginal) && receiptPath !== nextPath) {
+    await supabase.storage.from("receipts").remove([receiptPath])
+  }
+  if (savedThumb && previousThumb && nextThumb && previousThumb !== nextThumb) {
+    await supabase.storage.from("receipts").remove([previousThumb])
+  }
+
   refresh(projectId)
   return { id: expenseId }
 }

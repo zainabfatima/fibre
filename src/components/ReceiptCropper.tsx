@@ -10,6 +10,8 @@ export function ReceiptCropper({
   needsManualCrop,
   busy = false,
   note,
+  pageLabel,
+  busyLabel,
   onChange,
   onUseCrop,
   onResetAuto,
@@ -23,6 +25,8 @@ export function ReceiptCropper({
   needsManualCrop: boolean
   busy?: boolean
   note?: string | null
+  pageLabel?: string | null
+  busyLabel?: string | null
   onChange: (corners: Point[]) => void
   onUseCrop: () => void
   onResetAuto: () => void
@@ -137,9 +141,12 @@ export function ReceiptCropper({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex h-dvh max-w-[100vw] flex-col overflow-hidden bg-background">
+    <div className="fixed inset-0 z-50 flex h-dvh max-w-[100vw] flex-col overflow-hidden bg-background">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
-        <h2 className="font-medium">Crop receipt</h2>
+        <div>
+          <h2 className="font-medium">Crop receipt</h2>
+          {pageLabel ? <p className="text-sm text-muted-foreground">{pageLabel}</p> : null}
+        </div>
         <button type="button" onClick={onCancel} className="min-h-11 px-3 text-sm underline">
           Cancel
         </button>
@@ -173,18 +180,18 @@ export function ReceiptCropper({
           className="min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
           onClick={onUseCrop}
         >
-          Use crop
+          {busy && busyLabel ? busyLabel : "Use crop"}
         </button>
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" className="min-h-11 rounded-lg border border-input px-3 text-sm" onClick={onResetAuto}>
+          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onResetAuto}>
             Reset to auto
           </button>
-          <button type="button" className="min-h-11 rounded-lg border border-input px-3 text-sm" onClick={onUseOriginal}>
+          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onUseOriginal}>
             Use original
           </button>
         </div>
         {onRotate ? (
-          <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={onRotate}>
+          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onRotate}>
             Rotate
           </button>
         ) : null}

@@ -15,6 +15,7 @@ import {
   setExpenseBillingStatus,
   updateExpenseFields,
 } from "@/app/actions/expenses"
+import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { StatusBadge } from "@/components/status-badge"
@@ -86,6 +87,7 @@ export function ExpenseSheet({
   const [grouped, setGrouped] = useState(false)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [preview, setPreview] = useState<SheetRow | null>(null)
+  const [cropping, setCropping] = useState(false)
   const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
   const [amountReset, setAmountReset] = useState(0)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -666,12 +668,30 @@ export function ExpenseSheet({
               <p>Open the file to view this receipt.</p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
+              {preview.hasReceipt !== false ? (
+                <button type="button" onClick={() => setCropping(true)} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
+                  Crop
+                </button>
+              ) : null}
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center text-sm underline">
                 Open full size
               </a>
             </div>
           </div>
         </div>
+      ) : null}
+      {cropping && preview ? (
+        <ReceiptRecrop
+          projectId={projectId}
+          expenseId={preview.id}
+          src={`/r/${preview.id}`}
+          onClose={() => setCropping(false)}
+          onSaved={() => {
+            setCropping(false)
+            setPreview(null)
+            router.refresh()
+          }}
+        />
       ) : null}
       {returnPrompt ? (
         <ReturnConfirmDialog

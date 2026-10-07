@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { clearDuplicate, confirmReturn, deleteExpense, saveSplit, updateExpenseFields } from "@/app/actions/expenses"
+import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { ReceiptPages } from "@/components/receipt-pages"
 import { Button } from "@/components/ui/button"
@@ -86,6 +87,8 @@ export function ReviewScreen({
   })
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
+  const [cropOpen, setCropOpen] = useState(false)
+  const [fileStamp, setFileStamp] = useState(0)
   const [zoomExpenseId, setZoomExpenseId] = useState(expenseId)
   if (zoomExpenseId !== expenseId) {
     setZoomExpenseId(expenseId)
@@ -226,10 +229,13 @@ export function ReviewScreen({
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setRotation((value) => value + 90)}>
             Rotate
           </Button>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setCropOpen(true)}>
+            Crop
+          </Button>
         </div>
         <div className="p-3 sm:p-4">
           <ReceiptPages
-            src={fileUrl}
+            src={fileStamp ? `${fileUrl}${fileUrl.includes("?") ? "&" : "?"}v=${fileStamp}` : fileUrl}
             fileType={fileType}
             pageCount={pageCount}
             zoom={zoom}
@@ -469,6 +475,21 @@ export function ReviewScreen({
           </div>
         ) : null}
       </div>
+      {cropOpen ? (
+        <ReceiptRecrop
+          projectId={projectId}
+          expenseId={expenseId}
+          src={fileUrl}
+          onClose={() => setCropOpen(false)}
+          onSaved={() => {
+            setFileStamp(Date.now())
+            setCropOpen(false)
+            setZoom(1)
+            setRotation(0)
+            router.refresh()
+          }}
+        />
+      ) : null}
       {returnDialog && needsReturn && returnAmount ? (
         <ReturnConfirmDialog
           amount={returnAmount}

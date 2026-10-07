@@ -12,7 +12,7 @@ export async function imagesToPdf(pages: Blob[]) {
   return new Blob([saved.buffer as ArrayBuffer], { type: "application/pdf" })
 }
 
-export async function renderPdf(file: Blob) {
+export async function renderPdf(file: Blob, options?: { maxLongSide?: number }) {
   const pdfjs = await import("pdfjs-dist")
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs"
   const data = new Uint8Array(await file.arrayBuffer())
@@ -25,7 +25,12 @@ export async function renderPdf(file: Blob) {
       .map((item) => ("str" in item ? item.str : ""))
       .join(" ")
       .trim()
-    const viewport = page.getViewport({ scale: 2 })
+    const base = page.getViewport({ scale: 1 })
+    const longSide = Math.max(base.width, base.height)
+    const scale = options?.maxLongSide
+      ? Math.min(4, Math.max(1, options.maxLongSide / longSide))
+      : 2
+    const viewport = page.getViewport({ scale })
     const canvas = document.createElement("canvas")
     canvas.width = Math.ceil(viewport.width)
     canvas.height = Math.ceil(viewport.height)

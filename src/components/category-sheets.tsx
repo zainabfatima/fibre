@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { assignInvoiceNumber, clearDuplicate, confirmReturn, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
+import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { useExpenseSearch } from "@/components/expense-amount-search"
@@ -34,6 +35,7 @@ export function CategorySheets({
 }) {
   const router = useRouter()
   const [preview, setPreview] = useState<SheetRow | null>(null)
+  const [cropping, setCropping] = useState(false)
   const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
   const [amountReset, setAmountReset] = useState(0)
   const scoped = rows.filter((row) => mode !== "needs" || row.invoiceStatus === "not_invoiced")
@@ -214,6 +216,11 @@ export function CategorySheets({
               <p>Open the file to view this receipt.</p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
+              {!readOnly && preview.hasReceipt !== false ? (
+                <button type="button" onClick={() => setCropping(true)} className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground">
+                  Crop
+                </button>
+              ) : null}
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium">
                 Open full size
               </a>
@@ -223,6 +230,19 @@ export function CategorySheets({
             </div>
           </div>
         </div>
+      ) : null}
+      {cropping && preview && !readOnly ? (
+        <ReceiptRecrop
+          projectId={projectId}
+          expenseId={preview.id}
+          src={`/r/${preview.id}`}
+          onClose={() => setCropping(false)}
+          onSaved={() => {
+            setCropping(false)
+            setPreview(null)
+            router.refresh()
+          }}
+        />
       ) : null}
       {returnPrompt ? (
         <ReturnConfirmDialog
