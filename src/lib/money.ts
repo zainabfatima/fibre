@@ -65,6 +65,28 @@ export function percentOfCents(cents: number, percent: string | number): number 
   return negative ? -rounded : rounded
 }
 
+/** Unicode dashes that should count as a leading minus, such as −377.20. */
+const UNICODE_MINUS = /[\u2212\u2012\u2013\u2014\uFE63\uFF0D]/g
+
+function normalizeSignedText(value: string) {
+  return value.trim().replace(UNICODE_MINUS, "-")
+}
+
+/**
+ * Expense amount fields. `inputMode="text"` keeps the minus key on an iPhone.
+ * `decimal` shows a keypad without "-".
+ */
+export const expenseAmountInputProps = {
+  type: "text",
+  inputMode: "text",
+  autoComplete: "off",
+  autoCorrect: "off",
+  spellCheck: false,
+  enterKeyHint: "done",
+  pattern: "[-$()0-9., ]*",
+  title: "Use a minus sign for a return, for example -377.20",
+} as const
+
 /** Dollar amount from a receipt total. Parentheses and a leading minus are negative. */
 export function parseSignedAmount(value: unknown): number | null {
   if (typeof value === "number") {
@@ -72,7 +94,7 @@ export function parseSignedAmount(value: unknown): number | null {
     return Math.round(value * 100) / 100
   }
   if (typeof value !== "string") return null
-  let text = value.trim()
+  let text = normalizeSignedText(value)
   if (!text || text.toLowerCase() === "null") return null
   let negative = false
   if (text.startsWith("(") && text.endsWith(")")) {
@@ -90,8 +112,9 @@ export function parseSignedAmount(value: unknown): number | null {
   return negative ? -amount : amount
 }
 
+/** Cents from an amount field. A leading minus or parentheses stay negative. */
 export function parseMoneyInput(value: string): number | null {
-  const trimmed = value.trim()
+  const trimmed = normalizeSignedText(value)
   const wrapped = trimmed.match(/^\((.*)\)\s*$/)
   const body = (wrapped ? wrapped[1] : trimmed).replace(/[$,\s]/g, "")
   if (!/^-?\d+(\.\d{0,2})?$/.test(body)) return null

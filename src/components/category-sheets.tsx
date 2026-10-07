@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, sumCents, amountOverBudget } from "@/lib/money"
+import { centsToMoney, expenseAmountInputProps, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, sumCents, amountOverBudget } from "@/lib/money"
 import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
@@ -80,7 +80,7 @@ export function CategorySheets({
   async function saveAmount(row: SheetRow, value: string) {
     const cents = parseMoneyInput(value)
     if (cents == null) {
-      toast.error("Enter an amount like 125.00")
+      toast.error("Enter an amount like 125.00 or -377.20")
       setAmountReset((current) => current + 1)
       return
     }
@@ -260,11 +260,10 @@ function AmountInput({
   }
   return (
     <input
+      {...expenseAmountInputProps}
       key={`${row.id}-${row.amount}-${resetKey}`}
-      defaultValue={formatMoney(row.amount).replace("$", "")}
+      defaultValue={centsToMoney(moneyToCents(row.amount))}
       aria-label={`Amount for ${row.vendor || "receipt"}`}
-      inputMode="decimal"
-      enterKeyHint="done"
       onBlur={(event) => onAmount(row, event.target.value)}
       onKeyDown={(event) => {
         if (event.key !== "Enter") return

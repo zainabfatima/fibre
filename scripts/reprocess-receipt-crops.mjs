@@ -506,8 +506,10 @@ async function updateRows(group, patch) {
     ...new Set(group.rows.map((row) => row.receipt_thumbnail_path).filter((path) => typeof path === "string" && path.length > 0)),
   ]
   for (const path of thumbPaths) {
-    const thumbUpload = await supabase.storage.from("receipts").upload(path, patch.thumb, {
-      contentType: "image/webp",
+    const thumb = await thumbnailForPath(path, patch.thumb)
+    if (!thumb) continue
+    const thumbUpload = await supabase.storage.from("receipts").upload(path, thumb.body, {
+      contentType: thumb.type,
       upsert: true,
     })
     if (thumbUpload.error) {

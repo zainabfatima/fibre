@@ -345,7 +345,7 @@ function identityFromLooseText(text: string) {
   const card = grab("card_last4")
   const amount = grab("total_amount_paid")
   if (!receipt && !date && !time && !payment && !card && !amount) return null
-  const amountNumber = amount == null ? null : Number(amount.replace(/,/g, ""))
+  const amountNumber = amount == null ? null : parseSignedAmount(amount)
   return tryParseExtraction(
     JSON.stringify({
       receipt_number: receipt,
@@ -353,7 +353,7 @@ function identityFromLooseText(text: string) {
       time,
       payment_method: payment,
       card_last4: card,
-      total_amount_paid: Number.isFinite(amountNumber) ? amountNumber : null,
+      total_amount_paid: amountNumber,
     }),
   )
 }

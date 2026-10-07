@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { formatCategory } from "@/lib/format"
 import {
   centsToMoney,
+  expenseAmountInputProps,
   formatMoney,
   moneyToCents,
   needsReturnConfirmation,
@@ -181,7 +182,7 @@ export function ExpenseSheet({
   async function saveAmount(row: SheetRow, value: string) {
     const cents = parseMoneyInput(value)
     if (cents == null) {
-      toast.error("Enter an amount like 125.00")
+      toast.error("Enter an amount like 125.00 or -377.20")
       setAmountReset((current) => current + 1)
       return
     }
@@ -412,10 +413,10 @@ export function ExpenseSheet({
               <label className="grid gap-1 text-xs">
                 Amount
                 <input
+                  {...expenseAmountInputProps}
                   key={`${item.id}-${item.amount}-mobile-${amountReset}`}
-                  defaultValue={formatMoney(item.amount).replace("$", "")}
+                  defaultValue={centsToMoney(moneyToCents(item.amount))}
                   onBlur={(event) => void saveAmount(item, event.target.value)}
-                  inputMode="decimal"
                   className="h-11 rounded-lg border border-input bg-transparent px-2 text-base tabular-nums"
                 />
               </label>
@@ -556,8 +557,9 @@ export function ExpenseSheet({
                         ))}
                       </select>
                       <input
+                        {...expenseAmountInputProps}
                         key={`${item.id}-${item.amount}-${amountReset}`}
-                        defaultValue={formatMoney(item.amount).replace("$", "")}
+                        defaultValue={centsToMoney(moneyToCents(item.amount))}
                         onBlur={(event) => void saveAmount(item, event.target.value)}
                         className="h-8 rounded-lg border border-input bg-transparent px-2 text-right text-sm tabular-nums"
                       />

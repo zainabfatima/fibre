@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SIMPLE_DESCRIPTION_MAX_CHARS } from "@/lib/simple-description"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, needsReturnConfirmation, parseMoneyInput, sumCents } from "@/lib/money"
+import { centsToMoney, expenseAmountInputProps, formatMoney, needsReturnConfirmation, parseMoneyInput, sumCents } from "@/lib/money"
 import { withZainab } from "@/lib/zainab-path"
 import { useZainab } from "@/components/view-mode"
 
@@ -299,7 +299,13 @@ export function ReviewScreen({
         ) : null}
         <Field label="Vendor" value={fields.vendor} low={low} onChange={(vendor) => setFields({ ...fields, vendor })} />
         <Field label="Date" value={fields.date} type="date" low={low} onChange={(date) => setFields({ ...fields, date })} />
-        <Field label="Amount" value={fields.amount} low={low} onChange={(amount) => setFields({ ...fields, amount })} />
+        <Field
+          label="Amount"
+          value={fields.amount}
+          low={low}
+          amount
+          onChange={(amount) => setFields({ ...fields, amount })}
+        />
         <Field
           label="Description"
           value={fields.description}
@@ -382,13 +388,14 @@ export function ReviewScreen({
                   placeholder="Description"
                 />
                 <Input
+                  {...expenseAmountInputProps}
                   value={line.amount}
                   onChange={(event) => {
                     const next = [...splits]
                     next[lineIndex] = { ...line, amount: event.target.value }
                     setSplits(next)
                   }}
-                  placeholder="Amount"
+                  placeholder="Amount, or -377.20 for a return"
                 />
                 <select
                   value={line.categoryId ?? ""}
@@ -456,6 +463,7 @@ function Field({
   type = "text",
   maxLength,
   placeholder,
+  amount = false,
 }: {
   label: string
   value: string
@@ -464,15 +472,16 @@ function Field({
   type?: string
   maxLength?: number
   placeholder?: string
+  amount?: boolean
 }) {
   return (
     <div className="grid gap-1">
       <Label>{label}</Label>
       <Input
-        type={type}
+        {...(amount ? expenseAmountInputProps : { type })}
         value={value}
         maxLength={maxLength}
-        placeholder={placeholder}
+        placeholder={amount ? "0.00 or -377.20" : placeholder}
         onChange={(event) => onChange(event.target.value)}
         className={low ? "bg-amber-50" : undefined}
       />
