@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { clearDuplicate, confirmReturn, deleteExpense, saveSplit, updateExpenseFields } from "@/app/actions/expenses"
+import { ReceiptFileActions } from "@/components/receipt-pdf-actions"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { ReceiptRetake } from "@/components/receipt-retake"
 import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
@@ -237,6 +238,10 @@ export function ReviewScreen({
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setRetakeOpen(true)}>
             Retake picture
           </Button>
+          <ReceiptFileActions
+            expenseId={expenseId}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input bg-background px-3 text-sm font-medium"
+          />
         </div>
         <div className="p-3 sm:p-4">
           <ReceiptPages

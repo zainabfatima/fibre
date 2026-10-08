@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { assignInvoiceNumber, clearDuplicate, confirmReturn, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
+import { ReceiptFileActions } from "@/components/receipt-pdf-actions"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { ReceiptRetake } from "@/components/receipt-retake"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
@@ -237,6 +238,7 @@ export function CategorySheets({
                   Retake picture
                 </button>
               ) : null}
+              {preview.hasReceipt !== false ? <ReceiptFileActions expenseId={preview.id} /> : null}
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium">
                 Open full size
               </a>
@@ -497,6 +499,12 @@ function CategoryBlock({
                     Retake picture
                   </button>
                 )}
+                {row.hasReceipt !== false ? (
+                  <ReceiptFileActions
+                    expenseId={row.id}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                  />
+                ) : null}
                 {invoiceTracking && row.invoiceId && row.hasInvoiceFile ? (
                   <a
                     href={`/i/${row.invoiceId}`}
@@ -680,6 +688,12 @@ function CategoryBlock({
                           Retake
                         </button>
                       )}
+                      {row.hasReceipt !== false ? (
+                        <ReceiptFileActions
+                          expenseId={row.id}
+                          className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg border border-input px-2 text-sm"
+                        />
+                      ) : null}
                     </div>
                   </td>
                   {readOnly ? null : (

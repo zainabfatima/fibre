@@ -255,6 +255,23 @@ export async function buildCategoryPacket(input: {
   return Buffer.from(await doc.save())
 }
 
+export async function buildReceiptPdf(input: {
+  bytes: Buffer
+  path: string
+  fileType: string
+  title: string
+}) {
+  if (isPdf(input.bytes, input.path, input.fileType)) return input.bytes
+  const doc = await PDFDocument.create()
+  const image = isPng(input.bytes) ? await doc.embedPng(input.bytes) : await doc.embedJpg(input.bytes)
+  drawFitted(doc, image.width, image.height, (sheet, x, y, width, height) => {
+    sheet.drawImage(image, { x, y, width, height })
+  })
+  doc.setTitle(pdfSafe(input.title).slice(0, 120))
+  doc.setCreator("Fibre")
+  return Buffer.from(await doc.save())
+}
+
 function wrap(font: PDFFont, text: string, size: number, maxWidth: number) {
   const words = pdfSafe(text).split(" ").filter(Boolean)
   const lines: string[] = []
