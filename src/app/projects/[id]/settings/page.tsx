@@ -1,5 +1,6 @@
 import { saveBudgets } from "@/app/actions/projects"
 import { BudgetSheetUpload } from "@/components/budget-sheet-upload"
+import { DeleteProjectButton } from "@/components/delete-project-button"
 import { ProjectForm } from "@/components/project-form"
 import { Button } from "@/components/ui/button"
 import { getProject, listCategories, listCategoryTotals } from "@/lib/queries"
@@ -33,6 +34,13 @@ export default async function ProjectSettingsPage({
       <section className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
         <h2 className="mb-4 font-medium">Project</h2>
         <ProjectForm project={project} />
+        <div className="mt-8 border-t border-border pt-6">
+          <h3 className="mb-1 text-sm font-medium">Delete project</h3>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Permanently removes this project, including receipts, expenses, invoices, and payments.
+          </p>
+          <DeleteProjectButton projectId={project.id} projectName={project.name} />
+        </div>
       </section>
       <section className="lg:col-span-2 grid gap-4">
         <BudgetSheetUpload />
