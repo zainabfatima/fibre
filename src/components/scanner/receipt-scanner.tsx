@@ -120,12 +120,18 @@ export function ReceiptScanner({
       document.body.style.overflow = previous
     }
   }, [editingId, previewSrc])
-  async function addBlob(blob: Blob, hashBlob = blob) {
-    setStatus("Finding the receipt")
+  async function addBlob(blob: Blob, hashBlob = blob, framed = false) {
+    setStatus(framed ? "Cropping the frame" : "Finding the receipt")
     try {
       const hash = await sha256(hashBlob)
       const source = await decodeReceiptFile(blob)
-      const detected = await cropReceipt(source)
+      const detected = framed
+        ? {
+            corners: fullFrameCorners(source.width, source.height),
+            method: "manual" as const,
+            confidence: 1,
+          }
+        : await cropReceipt(source)
       const original = await rasterToJpegBlob(source, 0.85)
       const id = crypto.randomUUID()
       const draft = paintPage({
@@ -136,7 +142,7 @@ export function ReceiptScanner({
         corners: detected.corners,
         autoCorners: detected.corners,
         autoMethod: detected.method,
-        choice: detected.method === "none" ? "original" : "auto",
+        choice: framed ? "manual" : detected.method === "none" ? "original" : "auto",
         confidence: detected.confidence,
         checks: emptyChecks,
         previewUrl: "",
@@ -296,7 +302,11 @@ export function ReceiptScanner({
       </div>
       {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
       {camera ? (
-        <CameraCapture pageNumber={pages.length + 1} onCapture={(blob) => void addBlob(blob)} onClose={() => setCamera(false)} />
+        <CameraCapture
+          pageNumber={pages.length + 1}
+          onCapture={(blob, framed) => void addBlob(blob, blob, framed)}
+          onClose={() => setCamera(false)}
+        />
       ) : null}
       {batchChoice && pages.length > 1 && !replacing ? (
         <div className="grid gap-2 rounded-xl bg-card p-3 text-sm ring-1 ring-foreground/10">
