@@ -195,6 +195,173 @@ export async function saveScannedReceipt(formData: FormData) {
   return { id }
 }
 
+export async function retakeExpenseReceipt(formData: FormData) {
+  const projectId = String(formData.get("projectId") ?? "")
+  const expenseId = String(formData.get("expenseId") ?? "")
+  const hashes = String(formData.get("hashes") ?? "")
+    .split(",")
+    .map((hash) => hash.toLowerCase())
+    .filter((hash) => /^[0-9a-f]{64}$/.test(hash))
+  const file = formData.get("file")
+  const thumb = formData.get("thumb")
+  const captureRaw = String(formData.get("captureType") ?? "single")
+  const captureType = captureRaw === "long" || captureRaw === "multi_page" ? captureRaw : "single"
+  const pageCount = Math.max(1, Math.min(20, Number(formData.get("pageCount") ?? (hashes.length || 1))))
+  const isPdf = file instanceof File && file.type === "application/pdf"
+  const isJpeg = file instanceof File && file.type === "image/jpeg"
+  if (!(file instanceof File) || (!isPdf && !isJpeg) || !projectId || !expenseId || hashes.length === 0) {
+    return { error: "The new photo is missing" }
+  }
+  const cropMethodRaw = String(formData.get("cropMethod") ?? "")
+  const cropMethod =
+    cropMethodRaw === "auto" || cropMethodRaw === "fallback" || cropMethodRaw === "manual" || cropMethodRaw === "none"
+      ? cropMethodRaw
+      : null
+  let cropCorners: Database["public"]["Tables"]["expenses"]["Update"]["crop_corners"] = null
+  const cornersRaw = String(formData.get("cropCorners") ?? "")
+  if (cornersRaw) {
+    try {
+      const parsed = JSON.parse(cornersRaw) as unknown
+      if (Array.isArray(parsed)) cropCorners = parsed as Database["public"]["Tables"]["expenses"]["Update"]["crop_corners"]
+    } catch {
+      cropCorners = null
+    }
+  }
+
+  const supabase = await requireAdmin()
+  const { data: expense, error: loadError } = await supabase
+    .from("expenses")
+    .select("id, category_id, receipt_file_path, receipt_thumbnail_path, original_file_path, original_file_paths")
+    .eq("id", expenseId)
+    .eq("project_id", projectId)
+    .maybeSingle()
+  if (loadError || !expense?.receipt_file_path) return { error: loadError?.message ?? "Receipt not found" }
+
+  const { data: shares } = await supabase
+    .from("expenses")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("receipt_file_path", expense.receipt_file_path)
+  const familyIds = [...new Set([expenseId, ...(shares ?? []).map((row) => row.id)])]
+
+  const pageHit = await supabase
+    .from("receipt_page_hashes")
+    .select("expense_id, page_number")
+    .eq("project_id", projectId)
+    .in("hash", hashes)
+    .limit(20)
+  if (pageHit.error) return { error: pageHit.error.message }
+  const otherPage = (pageHit.data ?? []).find((row) => !familyIds.includes(row.expense_id))
+  if (otherPage) {
+    const { data: other } = await supabase
+      .from("expenses")
+      .select("id, expense_date, created_at")
+      .eq("id", otherPage.expense_id)
+      .maybeSingle()
+    return {
+      error: `Duplicate — page ${otherPage.page_number} matches a receipt from ${(other?.expense_date || other?.created_at || "an earlier upload").slice(0, 10)}`,
+      existingId: other?.id ?? otherPage.expense_id,
+    }
+  }
+  const fileHit = await supabase
+    .from("expenses")
+    .select("id, expense_date, created_at")
+    .eq("project_id", projectId)
+    .in("receipt_file_hash", hashes)
+    .limit(20)
+  if (fileHit.error) return { error: fileHit.error.message }
+  const otherFile = (fileHit.data ?? []).find((row) => !familyIds.includes(row.id))
+  if (otherFile) {
+    return {
+      error: `Duplicate receipt — already uploaded on ${(otherFile.expense_date || otherFile.created_at).slice(0, 10)}`,
+      existingId: otherFile.id,
+    }
+  }
+
+  const path = `${projectId}/0/${crypto.randomUUID()}.${isPdf ? "pdf" : "jpg"}`
+  const uploaded = await supabase.storage.from("receipts").upload(path, Buffer.from(await file.arrayBuffer()), {
+    contentType: isPdf ? "application/pdf" : "image/jpeg",
+    upsert: false,
+  })
+  if (uploaded.error) return { error: uploaded.error.message }
+
+  const originalFiles = formData.getAll("original").filter((entry): entry is File => entry instanceof File && entry.size > 0)
+  const originalPaths: string[] = []
+  for (const original of originalFiles) {
+    const originalPath = `${projectId}/0/${crypto.randomUUID()}.jpg`
+    const originalUpload = await supabase.storage.from("receipt-originals").upload(originalPath, Buffer.from(await original.arrayBuffer()), {
+      contentType: "image/jpeg",
+      upsert: false,
+    })
+    if (!originalUpload.error) originalPaths.push(originalPath)
+  }
+
+  let thumbPath: string | null = null
+  if (thumb instanceof File && thumb.size > 0) {
+    thumbPath = `${projectId}/thumbs/${crypto.randomUUID()}.webp`
+    const thumbUpload = await supabase.storage.from("receipts").upload(thumbPath, Buffer.from(await thumb.arrayBuffer()), {
+      contentType: thumb.type || "image/webp",
+      upsert: false,
+    })
+    if (thumbUpload.error) thumbPath = null
+  }
+
+  async function rollbackUploads() {
+    await supabase.storage.from("receipts").remove([path, thumbPath].filter((item): item is string => Boolean(item)))
+    if (originalPaths.length) await supabase.storage.from("receipt-originals").remove(originalPaths)
+  }
+
+  const patch: Database["public"]["Tables"]["expenses"]["Update"] = {
+    receipt_file_path: path,
+    receipt_file_hash: hashes[0],
+    receipt_thumbnail_path: thumbPath,
+    original_file_path: originalPaths[0] ?? null,
+    original_file_paths: originalPaths,
+    crop_corners: cropCorners,
+    crop_method: cropMethod,
+    needs_manual_crop: formData.get("needsManualCrop") === "true" || cropMethod === "none",
+    page_count: pageCount,
+    file_type: isPdf ? "pdf" : "image",
+    capture_type: captureType,
+    verification_status: "needs_review",
+    duplicate_of: null,
+  }
+  const saved = await supabase.from("expenses").update(patch).eq("project_id", projectId).eq("receipt_file_path", expense.receipt_file_path).select("id")
+  if (saved.error || (saved.data?.length ?? 0) === 0) {
+    await rollbackUploads()
+    return { error: saved.error?.message ?? "Receipt not found" }
+  }
+
+  const cleared = await supabase.from("receipt_page_hashes").delete().in("expense_id", familyIds)
+  if (!cleared.error) {
+    const inserted = await supabase.from("receipt_page_hashes").insert(
+      hashes.map((hash, index) => ({
+        project_id: projectId,
+        expense_id: expenseId,
+        page_number: index + 1,
+        hash,
+      })),
+    )
+    if (inserted.error) {
+      refresh(projectId)
+      return { id: expenseId, categoryId: expense.category_id, warning: "Photo saved. Duplicate checking could not be updated." }
+    }
+  }
+
+  const previousOriginals = [expense.original_file_path, ...asPathList(expense.original_file_paths)].filter(
+    (item): item is string => typeof item === "string" && item.length > 0 && !originalPaths.includes(item),
+  )
+  await supabase.storage.from("receipts").remove(
+    [expense.receipt_file_path, expense.receipt_thumbnail_path].filter(
+      (item): item is string => Boolean(item) && item !== path && item !== thumbPath,
+    ),
+  )
+  if (previousOriginals.length) await supabase.storage.from("receipt-originals").remove(previousOriginals)
+
+  refresh(projectId)
+  return { id: expenseId, categoryId: expense.category_id }
+}
+
 function storageType(path: string) {
   const lower = path.toLowerCase()
   if (lower.endsWith(".png")) return "image/png"

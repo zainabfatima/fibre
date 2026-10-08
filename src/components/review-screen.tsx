@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { clearDuplicate, confirmReturn, deleteExpense, saveSplit, updateExpenseFields } from "@/app/actions/expenses"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
+import { ReceiptRetake } from "@/components/receipt-retake"
 import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { ReceiptPages } from "@/components/receipt-pages"
 import { Button } from "@/components/ui/button"
@@ -88,6 +89,7 @@ export function ReviewScreen({
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
   const [cropOpen, setCropOpen] = useState(false)
+  const [retakeOpen, setRetakeOpen] = useState(false)
   const [fileStamp, setFileStamp] = useState(0)
   const [zoomExpenseId, setZoomExpenseId] = useState(expenseId)
   if (zoomExpenseId !== expenseId) {
@@ -231,6 +233,9 @@ export function ReviewScreen({
           </Button>
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setCropOpen(true)}>
             Crop
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setRetakeOpen(true)}>
+            Retake picture
           </Button>
         </div>
         <div className="p-3 sm:p-4">
@@ -475,6 +480,21 @@ export function ReviewScreen({
           </div>
         ) : null}
       </div>
+      {retakeOpen ? (
+        <ReceiptRetake
+          projectId={projectId}
+          expenseId={expenseId}
+          categoryId={fields.categoryId}
+          onClose={() => setRetakeOpen(false)}
+          onSaved={() => {
+            setFileStamp(Date.now())
+            setRetakeOpen(false)
+            setZoom(1)
+            setRotation(0)
+            router.refresh()
+          }}
+        />
+      ) : null}
       {cropOpen ? (
         <ReceiptRecrop
           projectId={projectId}

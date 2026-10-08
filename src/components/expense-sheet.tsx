@@ -16,6 +16,7 @@ import {
   updateExpenseFields,
 } from "@/app/actions/expenses"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
+import { ReceiptRetake } from "@/components/receipt-retake"
 import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { StatusBadge } from "@/components/status-badge"
@@ -87,6 +88,7 @@ export function ExpenseSheet({
   const [grouped, setGrouped] = useState(false)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [preview, setPreview] = useState<SheetRow | null>(null)
+  const [retake, setRetake] = useState<SheetRow | null>(null)
   const [cropping, setCropping] = useState(false)
   const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
   const [amountReset, setAmountReset] = useState(0)
@@ -165,8 +167,8 @@ export function ExpenseSheet({
     .filter(([, selected]) => selected)
     .map(([id]) => id)
   const gridClass = invoiceTracking
-    ? "grid-cols-[28px_36px_96px_140px_minmax(0,1fr)_180px_96px_72px_110px_120px_110px]"
-    : "grid-cols-[36px_96px_140px_minmax(0,1fr)_180px_96px_72px]"
+    ? "grid-cols-[28px_36px_96px_140px_minmax(0,1fr)_180px_96px_128px_110px_120px_110px]"
+    : "grid-cols-[36px_96px_140px_minmax(0,1fr)_180px_96px_128px]"
 
   async function persistAmount(row: SheetRow, amount: string, success: string) {
     const result = await updateExpenseFields({
@@ -471,6 +473,13 @@ export function ExpenseSheet({
                   )}
                 </div>
               ) : null}
+              <button
+                type="button"
+                onClick={() => setRetake(item)}
+                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+              >
+                Retake picture
+              </button>
             </li>
           ))}
         </ul>
@@ -578,14 +587,23 @@ export function ExpenseSheet({
                         onAmount={(value) => void saveAmount(item, value)}
                         className="h-8 rounded-lg border border-input bg-transparent px-2 text-right text-sm tabular-nums"
                       />
-                      <button type="button" onClick={() => setPreview(item)} className="h-10 w-10 overflow-hidden rounded border border-border">
-                        {item.thumbUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.thumbUrl} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <span className="text-[10px]">File</span>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => setPreview(item)} className="h-10 w-10 overflow-hidden rounded border border-border">
+                          {item.thumbUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={item.thumbUrl} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-[10px]">File</span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRetake(item)}
+                          className="h-8 whitespace-nowrap rounded-lg border border-input px-2 text-xs"
+                        >
+                          Retake
+                        </button>
+                      </div>
                       {invoiceTracking ? (
                         <>
                           <input
@@ -673,12 +691,35 @@ export function ExpenseSheet({
                   Crop
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setRetake(preview)
+                  setPreview(null)
+                }}
+                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+              >
+                Retake picture
+              </button>
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center text-sm underline">
                 Open full size
               </a>
             </div>
           </div>
         </div>
+      ) : null}
+      {retake ? (
+        <ReceiptRetake
+          projectId={projectId}
+          expenseId={retake.id}
+          categoryId={retake.categoryId}
+          onClose={() => setRetake(null)}
+          onSaved={() => {
+            setRetake(null)
+            setPreview(null)
+            router.refresh()
+          }}
+        />
       ) : null}
       {cropping && preview ? (
         <ReceiptRecrop

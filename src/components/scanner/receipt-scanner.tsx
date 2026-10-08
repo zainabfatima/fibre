@@ -81,11 +81,13 @@ function combinedMethod(methods: CropMethod[]): CropMethod {
 export function ReceiptScanner({
   initialFiles = [],
   startInCamera = false,
+  replacing = false,
   onCancel,
   onComplete,
 }: {
   initialFiles?: File[]
   startInCamera?: boolean
+  replacing?: boolean
   onCancel: () => void
   onComplete: (results: ScanResult[]) => Promise<void>
 }) {
@@ -260,11 +262,12 @@ export function ReceiptScanner({
         return
       }
       const type = chosen ?? (group.length === 1 ? "single" : captureType)
-      if (type === "single" && group.length > 1) {
+      if (!replacing && type === "single" && group.length > 1) {
         await onComplete(await separateResults(group))
         return
       }
-      await onComplete([await buildResult(group, type)])
+      const savedType = replacing && group.length > 1 && type === "single" ? "multi_page" : type
+      await onComplete([await buildResult(group, savedType)])
     } catch (cause) {
       setNote(cause instanceof Error ? cause.message : "The scan could not be saved")
     } finally {
@@ -286,7 +289,7 @@ export function ReceiptScanner({
   return (
     <div className="grid gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-medium">Scan receipt</h2>
+        <h2 className="font-medium">{replacing ? "Retake picture" : "Scan receipt"}</h2>
         <button type="button" onClick={onCancel} className="text-sm underline">
           Cancel
         </button>
@@ -295,7 +298,7 @@ export function ReceiptScanner({
       {camera ? (
         <CameraCapture pageNumber={pages.length + 1} onCapture={(blob) => void addBlob(blob)} onClose={() => setCamera(false)} />
       ) : null}
-      {batchChoice && pages.length > 1 ? (
+      {batchChoice && pages.length > 1 && !replacing ? (
         <div className="grid gap-2 rounded-xl bg-card p-3 text-sm ring-1 ring-foreground/10">
           <p>These photos can be separate receipts, one long receipt, or one multi-page document.</p>
           <div className="grid gap-2">

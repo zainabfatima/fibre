@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { assignInvoiceNumber, clearDuplicate, confirmReturn, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
+import { ReceiptRetake } from "@/components/receipt-retake"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { useExpenseSearch } from "@/components/expense-amount-search"
@@ -35,6 +36,7 @@ export function CategorySheets({
 }) {
   const router = useRouter()
   const [preview, setPreview] = useState<SheetRow | null>(null)
+  const [retake, setRetake] = useState<SheetRow | null>(null)
   const [cropping, setCropping] = useState(false)
   const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
   const [amountReset, setAmountReset] = useState(0)
@@ -168,6 +170,7 @@ export function CategorySheets({
           invoiceTracking={invoiceTracking}
           categories={categories}
           onPreview={setPreview}
+          onRetake={setRetake}
           onAmount={saveAmount}
           onInvoice={saveInvoice}
           onStatus={saveStatus}
@@ -193,6 +196,7 @@ export function CategorySheets({
           invoiceTracking={invoiceTracking}
           categories={categories}
           onPreview={setPreview}
+          onRetake={setRetake}
           onAmount={saveAmount}
           onInvoice={saveInvoice}
           onStatus={saveStatus}
@@ -221,6 +225,18 @@ export function CategorySheets({
                   Crop
                 </button>
               ) : null}
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRetake(preview)
+                    setPreview(null)
+                  }}
+                  className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                >
+                  Retake picture
+                </button>
+              ) : null}
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium">
                 Open full size
               </a>
@@ -230,6 +246,19 @@ export function CategorySheets({
             </div>
           </div>
         </div>
+      ) : null}
+      {retake && !readOnly ? (
+        <ReceiptRetake
+          projectId={projectId}
+          expenseId={retake.id}
+          categoryId={retake.categoryId}
+          onClose={() => setRetake(null)}
+          onSaved={() => {
+            setRetake(null)
+            setPreview(null)
+            router.refresh()
+          }}
+        />
       ) : null}
       {cropping && preview && !readOnly ? (
         <ReceiptRecrop
@@ -314,6 +343,7 @@ function CategoryBlock({
   invoiceTracking,
   categories,
   onPreview,
+  onRetake,
   onAmount,
   onInvoice,
   onStatus,
@@ -337,6 +367,7 @@ function CategoryBlock({
   invoiceTracking: boolean
   categories: CategoryOption[]
   onPreview: (row: SheetRow) => void
+  onRetake: (row: SheetRow) => void
   onAmount: (row: SheetRow, value: string) => void
   onInvoice: (row: SheetRow, number: string) => void
   onStatus: (row: SheetRow, status: "unpaid" | "paid" | "partial") => void
@@ -457,6 +488,15 @@ function CategoryBlock({
                 >
                   View receipt
                 </button>
+                {readOnly ? null : (
+                  <button
+                    type="button"
+                    onClick={() => onRetake(row)}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                  >
+                    Retake picture
+                  </button>
+                )}
                 {invoiceTracking && row.invoiceId && row.hasInvoiceFile ? (
                   <a
                     href={`/i/${row.invoiceId}`}
@@ -622,14 +662,25 @@ function CategoryBlock({
                     />
                   </td>
                   <td className="px-3 py-2">
-                    <button type="button" onClick={() => onPreview(row)} className="h-12 w-12 overflow-hidden rounded border border-border">
-                      {row.thumbUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={row.thumbUrl} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <span className="text-[10px]">File</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => onPreview(row)} className="h-12 w-12 overflow-hidden rounded border border-border">
+                        {row.thumbUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={row.thumbUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="text-[10px]">File</span>
+                        )}
+                      </button>
+                      {readOnly ? null : (
+                        <button
+                          type="button"
+                          onClick={() => onRetake(row)}
+                          className="h-9 whitespace-nowrap rounded-lg border border-input px-2 text-sm"
+                        >
+                          Retake
+                        </button>
                       )}
-                    </button>
+                    </div>
                   </td>
                   {readOnly ? null : (
                     <>
