@@ -24,10 +24,11 @@ export function cropDarkOuterBorder(
     return 0
   }
 
-  function lineMedian(axis: "x" | "y", index: number, step: number) {
+  function lineStats(axis: "x" | "y", index: number, step: number) {
     const along = axis === "x" ? height : width
     const hist = new Uint32Array(256)
     let count = 0
+    let dark = 0
     for (let cursor = 0; cursor < along; cursor += step) {
       const x = axis === "x" ? index : cursor
       const y = axis === "x" ? cursor : index
@@ -37,9 +38,10 @@ export function cropDarkOuterBorder(
           ? pixels[offset]
           : Math.round((pixels[offset] + pixels[offset + 1] + pixels[offset + 2]) / 3)
       hist[shade] += 1
+      if (shade < 110) dark += 1
       count += 1
     }
-    return shadeAt(hist, count, 0.5)
+    return { median: shadeAt(hist, count, 0.5), dark: dark / Math.max(count, 1) }
   }
 
   function axisSpan(axis: "x" | "y") {
@@ -48,11 +50,13 @@ export function cropDarkOuterBorder(
     if (length < 2) return { start: 0, end: length }
     const step = Math.max(1, Math.floor(along / 220))
     const medians = new Uint8Array(length)
+    const darkShare = new Float32Array(length)
     const hist = new Uint32Array(256)
     for (let index = 0; index < length; index += 1) {
-      const median = lineMedian(axis, index, step)
-      medians[index] = median
-      hist[median] += 1
+      const stats = lineStats(axis, index, step)
+      medians[index] = stats.median
+      darkShare[index] = stats.dark
+      hist[stats.median] += 1
     }
     let page = shadeAt(hist, length, 0.6)
     if (page < 120) {
@@ -113,17 +117,18 @@ export function cropDarkOuterBorder(
     }
 
     const bright = Math.round(page * 0.92)
-    const limit = Math.max(1, Math.round(length * 0.015))
+    const limit = Math.max(1, Math.round(length * 0.02))
+    const fringe = (at: number) => medians[at] < bright || darkShare[at] > 0.06
     if (start > 0) {
       let steps = 0
-      while (start < finish && steps < limit && medians[start] < bright) {
+      while (start < finish && steps < limit && fringe(start)) {
         start += 1
         steps += 1
       }
     }
     if (finish < length - 1) {
       let steps = 0
-      while (finish > start && steps < limit && medians[finish] < bright) {
+      while (finish > start && steps < limit && fringe(finish)) {
         finish -= 1
         steps += 1
       }

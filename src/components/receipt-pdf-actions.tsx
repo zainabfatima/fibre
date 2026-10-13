@@ -211,7 +211,7 @@ function printPdfFrame(fileUrl: string, onClose?: () => void) {
   iframe.title = "Print receipt"
   iframe.setAttribute("aria-hidden", "true")
   iframe.style.cssText =
-    "position:fixed;left:0;top:0;width:816px;height:1056px;border:0;background:#fff;opacity:0;pointer-events:none;"
+    "position:fixed;left:-10000px;top:0;width:816px;height:1056px;border:0;background:#fff;"
   const cleanup = () => {
     iframe.remove()
     onClose?.()

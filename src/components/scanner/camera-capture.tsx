@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 
-import { decodeReceiptFile, loadOpenCv } from "@/lib/receiptCrop"
+import { decodeReceiptFile, fullFrameCorners, loadOpenCv, rasterToJpegBlob, renderCrop } from "@/lib/receiptCrop"
 import {
   detectReceiptQuad,
   processReceipt,
@@ -23,6 +23,8 @@ const DETECT_LONG_SIDE = 640
 const DETECT_INTERVAL_MS = 125
 const STABLE_FRAMES = 10
 const AUTO_TRIES = 3
+const SCANNER_WAIT_MS = 20000
+const CLEAN_LONG_SIDE = 2000
 
 export function CameraCapture({
   pageNumber,
@@ -45,6 +47,9 @@ export function CameraCapture({
   const lastQuadRef = useRef<ScanPoint[] | null>(null)
   const bestRef = useRef<{ scan: ProcessedReceipt; original: Blob } | null>(null)
   const captureRef = useRef<(manual: boolean) => Promise<void>>(async () => {})
+  const cvPromiseRef = useRef<Promise<ScannerCv | null> | null>(null)
+  const cvStateRef = useRef<"loading" | "ready" | "failed">("loading")
+  const cameraReadyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [torch, setTorch] = useState(false)
   const [ready, setReady] = useState(false)
@@ -52,8 +57,34 @@ export function CameraCapture({
   const [status, setStatus] = useState("Opening the camera")
 
   function stopCamera() {
+    const video = videoRef.current
+    if (video) {
+      video.pause()
+      video.srcObject = null
+    }
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
+  }
+
+  function loadScanner() {
+    if (!cvPromiseRef.current) {
+      cvPromiseRef.current = loadOpenCv(Number.POSITIVE_INFINITY).then(
+        (cv) => (cv as unknown as ScannerCv | null) ?? null,
+      )
+    }
+    return cvPromiseRef.current
+  }
+
+  async function scannerWhenReady(waitMs: number) {
+    if (cvRef.current) return cvRef.current
+    const cv = await Promise.race([
+      loadScanner(),
+      new Promise<ScannerCv | null>((resolve) => {
+        window.setTimeout(() => resolve(cvRef.current), waitMs)
+      }),
+    ])
+    if (cv) cvRef.current = cv
+    return cvRef.current
   }
 
   useEffect(() => {
@@ -64,20 +95,14 @@ export function CameraCapture({
       return () => window.clearTimeout(timer)
     }
     let cancelled = false
-    async function start() {
+    function previewStatus() {
+      if (cvStateRef.current === "ready") return "Looking for the receipt"
+      if (cvStateRef.current === "failed") return "Tap Capture now."
+      return "Starting edge detection"
+    }
+    async function openCamera() {
       try {
-        const cv = await loadOpenCv()
-        if (!cv) throw new Error("The scanner could not load. Choose a photo instead.")
-        if (cancelled) return
-        cvRef.current = cv as unknown as ScannerCv
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 4096 },
-            height: { ideal: 4096 },
-          },
-        })
+        const stream = await openRearCamera()
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop())
           return
@@ -98,25 +123,35 @@ export function CameraCapture({
         if (!video) return
         video.srcObject = stream
         video.muted = true
+        video.defaultMuted = true
         video.playsInline = true
+        video.setAttribute("playsinline", "true")
+        video.setAttribute("webkit-playsinline", "true")
         await video.play()
         if (!cancelled) {
+          cameraReadyRef.current = true
           setReady(true)
-          setStatus("Looking for the receipt")
+          if (!busyRef.current && !deliveredRef.current) setStatus(previewStatus())
         }
       } catch (cause) {
         if (!cancelled) {
-          streamRef.current?.getTracks().forEach((track) => track.stop())
-          streamRef.current = null
+          stopCamera()
           setError(cause instanceof Error ? cause.message : "The camera is not available. Choose a photo instead.")
         }
       }
     }
-    void start()
+    // The live preview must not wait on the OpenCV CDN. Edge detection starts when cv arrives.
+    void openCamera()
+    void loadScanner().then((cv) => {
+      if (cancelled) return
+      if (cv) cvRef.current = cv
+      cvStateRef.current = cv ? "ready" : "failed"
+      if (!cameraReadyRef.current || busyRef.current || deliveredRef.current) return
+      setStatus(cv ? "Looking for the receipt" : "Tap Capture now.")
+    })
     return () => {
       cancelled = true
-      streamRef.current?.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
+      stopCamera()
     }
   }, [])
 
@@ -143,29 +178,33 @@ export function CameraCapture({
       const context = sample.getContext("2d", { willReadFrequently: true })
       if (!context) return
       context.drawImage(video, 0, 0, sample.width, sample.height)
-      const mat = cv.imread(sample)
       try {
-        const found = detectReceiptQuad(cv, mat)
-        if (!found) {
-          stableRef.current = 0
-          lastQuadRef.current = null
-          drawQuad(null)
-          setStatus("Looking for the receipt")
-          return
+        const mat = cv.imread(sample)
+        try {
+          const found = detectReceiptQuad(cv, mat)
+          if (!found) {
+            stableRef.current = 0
+            lastQuadRef.current = null
+            drawQuad(null)
+            setStatus("Looking for the receipt")
+            return
+          }
+          const corners = found.corners.map((point) => ({ x: point.x / scale, y: point.y / scale }))
+          drawQuad(corners)
+          const previous = lastQuadRef.current
+          if (previous && quadIsStable(quadShift(previous, corners, video.videoWidth))) stableRef.current += 1
+          else stableRef.current = 1
+          lastQuadRef.current = corners
+          setStatus(stableRef.current >= STABLE_FRAMES ? "Capturing" : "Hold steady")
+          if (stableRef.current >= STABLE_FRAMES) {
+            stableRef.current = 0
+            void captureRef.current(false)
+          }
+        } finally {
+          mat.delete()
         }
-        const corners = found.corners.map((point) => ({ x: point.x / scale, y: point.y / scale }))
-        drawQuad(corners)
-        const previous = lastQuadRef.current
-        if (previous && quadIsStable(quadShift(previous, corners, video.videoWidth))) stableRef.current += 1
-        else stableRef.current = 1
-        lastQuadRef.current = corners
-        setStatus(stableRef.current >= STABLE_FRAMES ? "Capturing" : "Hold steady")
-        if (stableRef.current >= STABLE_FRAMES) {
-          stableRef.current = 0
-          void captureRef.current(false)
-        }
-      } finally {
-        mat.delete()
+      } catch {
+        // One bad frame must not close the camera.
       }
     }
     tick()
@@ -205,8 +244,8 @@ export function CameraCapture({
   async function capture(manual: boolean) {
     if (busyRef.current || deliveredRef.current) return
     const video = videoRef.current
-    const cv = cvRef.current
-    if (!video || !cv || video.videoWidth < 2) return
+    if (!video || video.videoWidth < 2) return
+    if (!manual && !cvRef.current) return
     busyRef.current = true
     setCapturing(true)
     setStatus(manual ? "Capturing" : "Cropping the receipt")
@@ -218,26 +257,39 @@ export function CameraCapture({
       if (!context) throw new Error("Could not read the camera")
       context.drawImage(video, 0, 0, frame.width, frame.height)
       const original = await canvasToJpeg(frame, 0.85)
-      const scan = await processReceipt(cv, frame)
-      const deliver = (chosen: ProcessedReceipt, photo: Blob, verified: boolean) => {
+      let cv = cvRef.current
+      if (!cv && manual) {
+        setStatus("Finishing the scanner")
+        cv = await scannerWhenReady(SCANNER_WAIT_MS)
+      }
+      const deliver = (blob: Blob, photo: Blob, verified: boolean) => {
         if (deliveredRef.current) return
         deliveredRef.current = true
-        onCapture({ blob: chosen.blob, original: photo, verified })
+        onCapture({ blob, original: photo, verified })
       }
-      if (manual || scan.verified || scan.corners == null) {
-        deliver(scan, original, scan.corners == null ? false : scan.verified)
-        return
+      if (cv) {
+        try {
+          const scan = await processReceipt(cv, frame)
+          if (manual || scan.verified || scan.corners == null) {
+            deliver(scan.blob, original, scan.corners == null ? false : scan.verified)
+            return
+          }
+          const previous = bestRef.current
+          if (!previous || scan.borderDark < previous.scan.borderDark) bestRef.current = { scan, original }
+          attemptsRef.current += 1
+          if (attemptsRef.current >= AUTO_TRIES) {
+            const best = bestRef.current ?? { scan, original }
+            deliver(best.scan.blob, best.original, false)
+            return
+          }
+          setStatus(`Still seeing the table. Trying again (${attemptsRef.current} of ${AUTO_TRIES}).`)
+          stableRef.current = 0
+          return
+        } catch {
+          // OpenCV ran but this frame could not be warped. Keep the photo.
+        }
       }
-      const previous = bestRef.current
-      if (!previous || scan.borderDark < previous.scan.borderDark) bestRef.current = { scan, original }
-      attemptsRef.current += 1
-      if (attemptsRef.current >= AUTO_TRIES) {
-        const best = bestRef.current ?? { scan, original }
-        deliver(best.scan, best.original, false)
-        return
-      }
-      setStatus(`Still seeing the table. Trying again (${attemptsRef.current} of ${AUTO_TRIES}).`)
-      stableRef.current = 0
+      deliver(await cleanedFullFrame(frame), original, false)
     } catch (cause) {
       stopCamera()
       setError(cause instanceof Error ? cause.message : "The photo could not be taken.")
@@ -262,19 +314,32 @@ export function CameraCapture({
   }
 
   async function useChosenPhoto(file: File) {
+    if (busyRef.current || deliveredRef.current) return
+    busyRef.current = true
     setCapturing(true)
     setStatus("Finding the receipt")
     try {
-      const cv = cvRef.current ?? ((await loadOpenCv()) as unknown as ScannerCv | null)
-      if (!cv) throw new Error("The scanner could not load.")
       const canvas = await fileToCanvas(file)
-      const scan = await processReceipt(cv, canvas)
+      const cv = cvRef.current ?? (await scannerWhenReady(SCANNER_WAIT_MS))
+      if (cv) {
+        try {
+          const scan = await processReceipt(cv, canvas)
+          if (deliveredRef.current) return
+          deliveredRef.current = true
+          onCapture({ blob: scan.blob, original: file, verified: scan.verified })
+          return
+        } catch {
+          // Fall through to a cleaned full-frame photo.
+        }
+      }
+      const blob = await cleanedFullFrame(canvas)
       if (deliveredRef.current) return
       deliveredRef.current = true
-      onCapture({ blob: scan.blob, original: file, verified: scan.verified })
+      onCapture({ blob, original: file, verified: false })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "This photo could not be opened.")
     } finally {
+      busyRef.current = false
       setCapturing(false)
     }
   }
@@ -326,6 +391,19 @@ export function CameraCapture({
             >
               Capture now
             </button>
+            <label className="inline-flex min-h-11 cursor-pointer items-center rounded-lg bg-white/15 px-4 text-sm">
+              Choose a photo
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ""
+                  if (file) void useChosenPhoto(file)
+                }}
+              />
+            </label>
           </div>
         </>
       )}
@@ -360,4 +438,49 @@ async function fileToCanvas(file: Blob) {
   if (!context) throw new Error("Could not read the photo")
   context.putImageData(new ImageData(new Uint8ClampedArray(raster.data), raster.width, raster.height), 0, 0)
   return canvas
+}
+
+async function openRearCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("The camera is not available. Choose a photo instead.")
+  }
+  const attempts: MediaStreamConstraints[] = [
+    {
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 4096 },
+        height: { ideal: 4096 },
+      },
+    },
+    {
+      audio: false,
+      video: { facingMode: { ideal: "environment" } },
+    },
+  ]
+  let last: unknown
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints)
+    } catch (cause) {
+      last = cause
+    }
+  }
+  throw last instanceof Error ? last : new Error("The camera is not available. Choose a photo instead.")
+}
+
+async function cleanedFullFrame(canvas: HTMLCanvasElement) {
+  const longSide = Math.max(canvas.width, canvas.height)
+  const scale = Math.min(1, CLEAN_LONG_SIDE / Math.max(longSide, 1))
+  const width = Math.max(1, Math.round(canvas.width * scale))
+  const height = Math.max(1, Math.round(canvas.height * scale))
+  const fitted = document.createElement("canvas")
+  fitted.width = width
+  fitted.height = height
+  const context = fitted.getContext("2d", { willReadFrequently: true })
+  if (!context) throw new Error("Could not read the camera")
+  context.drawImage(canvas, 0, 0, width, height)
+  const image = context.getImageData(0, 0, width, height)
+  const cleaned = renderCrop({ width, height, data: image.data }, fullFrameCorners(width, height), "none")
+  return rasterToJpegBlob(cleaned.image, 0.85)
 }
