@@ -141,6 +141,14 @@ export function CategorySheets({
     else router.refresh()
   }
 
+  async function saveReimbursement(row: SheetRow, name: string) {
+    const next = reimbursementNameValue(name)
+    if (next === reimbursementNameValue(row.reimbursementName)) return
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, reimbursementName: next })
+    if (result.error) toast.error(result.error)
+    else router.refresh()
+  }
+
   async function saveCategory(row: SheetRow, categoryId: number) {
     const result = await updateExpenseFields({ projectId, expenseId: row.id, categoryId })
     if (result.error) toast.error(result.error)
@@ -187,6 +195,7 @@ export function CategorySheets({
           onInvoice={saveInvoice}
           onStatus={saveStatus}
           onQb={saveQb}
+          onReimbursement={saveReimbursement}
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
@@ -216,6 +225,7 @@ export function CategorySheets({
           onInvoice={saveInvoice}
           onStatus={saveStatus}
           onQb={saveQb}
+          onReimbursement={saveReimbursement}
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
@@ -363,6 +373,11 @@ function AmountInput({
   )
 }
 
+function reimbursementNameValue(value: string | null | undefined) {
+  const name = String(value ?? "").trim().replace(/\s+/g, " ")
+  return name ? name.slice(0, 80) : null
+}
+
 function QbSelect({
   value,
   onChange,
@@ -372,16 +387,43 @@ function QbSelect({
   onChange: (yes: boolean) => void
   className: string
 }) {
+  const tone = value
+    ? "border-emerald-200 bg-emerald-50 font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-100"
+    : "border-input bg-muted text-muted-foreground"
   return (
     <select
       aria-label="QuickBooks status"
       value={value ? "yes" : "no"}
       onChange={(event) => onChange(event.target.value === "yes")}
-      className={className}
+      className={`${className} ${tone}`}
     >
       <option value="no">No</option>
       <option value="yes">Yes</option>
     </select>
+  )
+}
+
+function ReimbursementInput({
+  row,
+  onSave,
+  className,
+}: {
+  row: SheetRow
+  onSave: (row: SheetRow, name: string) => void
+  className: string
+}) {
+  const filled = Boolean(row.reimbursementName?.trim())
+  return (
+    <input
+      key={`${row.id}-${row.reimbursementName ?? ""}`}
+      defaultValue={row.reimbursementName ?? ""}
+      aria-label="Reimbursement"
+      placeholder="Name"
+      maxLength={80}
+      title={row.reimbursementName ?? "Person to reimburse. Leave blank if this is not a reimbursement."}
+      onBlur={(event) => onSave(row, event.target.value)}
+      className={`${className} ${filled ? "border-primary/30 bg-accent text-accent-foreground" : "border-input bg-card text-foreground"}`}
+    />
   )
 }
 
@@ -404,6 +446,7 @@ function CategoryBlock({
   onInvoice,
   onStatus,
   onQb,
+  onReimbursement,
   onCategory,
   onDelete,
   onConfirmDuplicate,
@@ -431,6 +474,7 @@ function CategoryBlock({
   onInvoice: (row: SheetRow, number: string) => void
   onStatus: (row: SheetRow, status: "unpaid" | "paid" | "partial") => void
   onQb: (row: SheetRow, qbStatus: boolean) => void
+  onReimbursement: (row: SheetRow, name: string) => void
   onCategory: (row: SheetRow, categoryId: number) => void
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
@@ -441,6 +485,8 @@ function CategoryBlock({
   readOnly: boolean
 }) {
   const tableColumns = 5 + (readOnly ? 0 : 4) + (invoiceTracking ? 3 : 0)
+  const spentRestColumns = tableColumns - 4
+  const headerCell = "whitespace-nowrap border-b-2 border-primary/40 bg-primary/10 px-3 py-2.5 text-sm font-semibold text-foreground"
   const spentCents = sumCents(rows.map((row) => row.amount))
   const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -533,18 +579,23 @@ function CategoryBlock({
                     </p>
                   ) : null}
                   {readOnly ? null : (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="mt-2 grid gap-2">
                       <label className="flex items-center gap-2 text-sm">
-                        <span className="text-muted-foreground">QB</span>
+                        <span className="font-medium text-foreground">QB</span>
                         <QbSelect
                           value={Boolean(row.qbStatus)}
                           onChange={(yes) => onQb(row, yes)}
-                          className="h-11 rounded-lg border border-input bg-transparent px-2 text-base"
+                          className="h-11 rounded-lg border px-2 text-base"
                         />
                       </label>
-                      {row.reimbursementName ? (
-                        <span className="text-sm">Reimbursement: {row.reimbursementName}</span>
-                      ) : null}
+                      <label className="grid gap-1 text-sm">
+                        <span className="font-medium text-foreground">Reimbursement</span>
+                        <ReimbursementInput
+                          row={row}
+                          onSave={onReimbursement}
+                          className="h-11 w-full rounded-lg border px-3 text-base"
+                        />
+                      </label>
                     </div>
                   )}
                   {invoiceTracking ? (
@@ -689,27 +740,31 @@ function CategoryBlock({
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1280px] text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-xs">
-                <th className="px-3 py-2 font-medium">Date</th>
-                <th className="px-3 py-2 font-medium">Vendor</th>
-                <th className="px-3 py-2 font-medium">Description</th>
-                <th className="px-3 py-2 font-medium">Amount</th>
-                <th className="px-3 py-2 font-medium">Receipt</th>
+              <tr className="text-left">
+                <th className={headerCell}>Date</th>
+                <th className={headerCell}>Vendor</th>
+                <th className={headerCell}>Description</th>
+                <th className={headerCell}>Amount</th>
+                <th className={headerCell}>Receipt</th>
                 {readOnly ? null : (
                   <>
-                    <th className="px-3 py-2 font-medium">QB</th>
-                    <th className="px-3 py-2 font-medium">Reimbursement</th>
-                    <th className="px-3 py-2 font-medium">Change category</th>
-                    <th className="px-3 py-2 font-medium">Delete</th>
+                    <th className={headerCell}>Change category</th>
+                    <th className={headerCell}>Delete</th>
                   </>
                 )}
                 {invoiceTracking ? (
                   <>
-                    <th className="px-3 py-2 font-medium">Invoice #</th>
-                    <th className="px-3 py-2 font-medium">Invoice status</th>
-                    <th className="px-3 py-2 font-medium">Invoice view</th>
+                    <th className={headerCell}>Invoice #</th>
+                    <th className={headerCell}>Invoice status</th>
+                    <th className={headerCell}>Invoice view</th>
                   </>
                 ) : null}
+                {readOnly ? null : (
+                  <>
+                    <th className={headerCell}>QB</th>
+                    <th className={headerCell}>Reimbursement</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -805,32 +860,22 @@ function CategoryBlock({
                   </td>
                   {readOnly ? null : (
                     <>
-                  <td className="px-3 py-2">
-                    <QbSelect
-                      value={Boolean(row.qbStatus)}
-                      onChange={(yes) => onQb(row, yes)}
-                      className="h-9 rounded-lg border border-input bg-transparent px-2 text-sm"
-                    />
-                  </td>
-                  <td className="max-w-40 truncate px-3 py-2" title={row.reimbursementName ?? undefined}>
-                    {row.reimbursementName || "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <ChangeCategoryCell
-                      categories={categories}
-                      currentId={row.categoryId}
-                      onChange={(categoryId) => onCategory(row, categoryId)}
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => onDelete(row)}
-                      className="h-9 whitespace-nowrap rounded-lg border border-input px-2 text-sm text-destructive"
-                    >
-                      Delete
-                    </button>
-                  </td>
+                      <td className="px-3 py-2">
+                        <ChangeCategoryCell
+                          categories={categories}
+                          currentId={row.categoryId}
+                          onChange={(categoryId) => onCategory(row, categoryId)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => onDelete(row)}
+                          className="h-9 whitespace-nowrap rounded-lg border border-input px-2 text-sm text-destructive"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </>
                   )}
                   {invoiceTracking ? (
@@ -904,6 +949,24 @@ function CategoryBlock({
                     </>
                     )
                   ) : null}
+                  {readOnly ? null : (
+                    <>
+                      <td className="px-3 py-2">
+                        <QbSelect
+                          value={Boolean(row.qbStatus)}
+                          onChange={(yes) => onQb(row, yes)}
+                          className="h-9 rounded-lg border px-2 text-sm"
+                        />
+                      </td>
+                      <td className={`px-3 py-2 ${row.reimbursementName ? "bg-accent/70" : ""}`}>
+                        <ReimbursementInput
+                          row={row}
+                          onSave={onReimbursement}
+                          className="h-9 w-40 rounded-lg border px-2 text-sm"
+                        />
+                      </td>
+                    </>
+                  )}
                 </tr>
                 </Fragment>
               ))}
@@ -912,7 +975,7 @@ function CategoryBlock({
                   Spent
                 </td>
                 <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
-                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 5) + (invoiceTracking ? 3 : 0)}>
+                <td className="px-3 py-2" colSpan={spentRestColumns}>
                   {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
                   <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
                 </td>

@@ -69,11 +69,15 @@ export async function lookupPageHashes(projectId: string, hashes: string[]) {
   }
 }
 
-function reimbursementNameFrom(formData: FormData) {
-  if (formData.get("reimbursement") !== "true") return null
-  const name = String(formData.get("reimbursementName") ?? "").trim().replace(/\s+/g, " ")
+function normalizeReimbursementName(value: string | null | undefined) {
+  const name = String(value ?? "").trim().replace(/\s+/g, " ")
   if (!name) return null
   return name.slice(0, 80)
+}
+
+function reimbursementNameFrom(formData: FormData) {
+  if (formData.get("reimbursement") !== "true") return null
+  return normalizeReimbursementName(String(formData.get("reimbursementName") ?? ""))
 }
 
 export async function saveScannedReceipt(formData: FormData) {
@@ -649,6 +653,7 @@ export async function updateExpenseFields(input: {
   paymentMethod?: string
   verify?: boolean
   qbStatus?: boolean
+  reimbursementName?: string | null
 }) {
   const supabase = await requireAdmin()
   const patch: Database["public"]["Tables"]["expenses"]["Update"] = {}
@@ -665,6 +670,7 @@ export async function updateExpenseFields(input: {
   if ("receiptNumber" in input) patch.receipt_number = input.receiptNumber?.trim() || null
   if ("paymentMethod" in input) patch.payment_method = input.paymentMethod?.trim() || null
   if ("qbStatus" in input) patch.qb_status = input.qbStatus === true
+  if ("reimbursementName" in input) patch.reimbursement_name = normalizeReimbursementName(input.reimbursementName)
   if (input.verify) {
     const { data: existing, error: existingError } = await supabase
       .from("expenses")
