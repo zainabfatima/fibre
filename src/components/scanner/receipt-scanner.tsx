@@ -111,8 +111,9 @@ export function ReceiptScanner({
   const editing = pages.find((page) => page.id === editingId) ?? null
   const started = useRef(false)
   useEffect(() => {
+    if (camera) return
     void loadOpenCv()
-  }, [])
+  }, [camera])
   useEffect(() => {
     if (started.current || initialFiles.length === 0) return
     started.current = true

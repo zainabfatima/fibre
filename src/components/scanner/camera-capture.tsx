@@ -23,7 +23,7 @@ const DETECT_LONG_SIDE = 640
 const DETECT_INTERVAL_MS = 125
 const STABLE_FRAMES = 10
 const AUTO_TRIES = 3
-const SCANNER_WAIT_MS = 20000
+const SCANNER_WAIT_MS = 1500
 const CLEAN_LONG_SIDE = 2000
 
 export function CameraCapture({
@@ -68,11 +68,18 @@ export function CameraCapture({
 
   function loadScanner() {
     if (!cvPromiseRef.current) {
-      cvPromiseRef.current = loadOpenCv(Number.POSITIVE_INFINITY).then(
-        (cv) => (cv as unknown as ScannerCv | null) ?? null,
-      )
+      cvPromiseRef.current = loadOpenCv(Number.POSITIVE_INFINITY)
+        .then((cv) => (cv as unknown as ScannerCv | null) ?? null)
+        .catch(() => null)
     }
     return cvPromiseRef.current
+  }
+
+  function onScannerReady(cv: ScannerCv | null) {
+    if (cv) cvRef.current = cv
+    cvStateRef.current = cv ? "ready" : "failed"
+    if (!cameraReadyRef.current || busyRef.current || deliveredRef.current) return
+    setStatus(cv ? "Looking for the receipt" : "Tap Capture now.")
   }
 
   async function scannerWhenReady(waitMs: number) {
@@ -113,42 +120,42 @@ export function CameraCapture({
         if (track && caps?.width?.max && caps.height?.max) {
           try {
             await track.applyConstraints({
-              width: { ideal: caps.width.max },
-              height: { ideal: caps.height.max },
+              width: { ideal: Math.min(1920, caps.width.max) },
+              height: { ideal: Math.min(1920, caps.height.max) },
             })
           } catch {
-            // The ideal 4096 request is enough when the phone rejects a second constraint.
+            // Live preview is enough when the phone rejects a second constraint.
           }
         }
-        if (!video) return
-        video.srcObject = stream
-        video.muted = true
-        video.defaultMuted = true
-        video.playsInline = true
-        video.setAttribute("playsinline", "true")
-        video.setAttribute("webkit-playsinline", "true")
-        await video.play()
-        if (!cancelled) {
-          cameraReadyRef.current = true
-          setReady(true)
-          if (!busyRef.current && !deliveredRef.current) setStatus(previewStatus())
+        const player = videoRef.current
+        if (!player) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
         }
+        player.srcObject = stream
+        await playCamera(player)
+        if (cancelled) {
+          stopCamera()
+          return
+        }
+        cameraReadyRef.current = true
+        setReady(true)
+        if (!busyRef.current && !deliveredRef.current) setStatus(previewStatus())
+        // Edge detection starts after the live preview is showing. Missing cv is not a camera error.
+        void loadScanner().then((cv) => {
+          if (!cancelled) onScannerReady(cv)
+        })
       } catch (cause) {
         if (!cancelled) {
           stopCamera()
           setError(cause instanceof Error ? cause.message : "The camera is not available. Choose a photo instead.")
+          void loadScanner().then((cv) => {
+            if (!cancelled) onScannerReady(cv)
+          })
         }
       }
     }
-    // The live preview must not wait on the OpenCV CDN. Edge detection starts when cv arrives.
     void openCamera()
-    void loadScanner().then((cv) => {
-      if (cancelled) return
-      if (cv) cvRef.current = cv
-      cvStateRef.current = cv ? "ready" : "failed"
-      if (!cameraReadyRef.current || busyRef.current || deliveredRef.current) return
-      setStatus(cv ? "Looking for the receipt" : "Tap Capture now.")
-    })
     return () => {
       cancelled = true
       stopCamera()
@@ -258,7 +265,7 @@ export function CameraCapture({
       context.drawImage(video, 0, 0, frame.width, frame.height)
       const original = await canvasToJpeg(frame, 0.85)
       let cv = cvRef.current
-      if (!cv && manual) {
+      if (!cv && manual && cvStateRef.current !== "failed") {
         setStatus("Finishing the scanner")
         cv = await scannerWhenReady(SCANNER_WAIT_MS)
       }
@@ -368,7 +375,14 @@ export function CameraCapture({
         </div>
       ) : (
         <>
-          <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            controls={false}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
           <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
             <div className="pointer-events-auto flex items-center justify-between">
@@ -440,33 +454,95 @@ async function fileToCanvas(file: Blob) {
   return canvas
 }
 
+async function playCamera(video: HTMLVideoElement) {
+  video.muted = true
+  video.defaultMuted = true
+  video.autoplay = true
+  video.playsInline = true
+  video.controls = false
+  video.setAttribute("muted", "true")
+  video.setAttribute("autoplay", "true")
+  video.setAttribute("playsinline", "true")
+  video.setAttribute("webkit-playsinline", "true")
+  const waited = new Promise<void>((resolve, reject) => {
+    if (video.readyState >= 1 && video.videoWidth > 0) {
+      resolve()
+      return
+    }
+    let timer = 0
+    const finish = () => {
+      window.clearTimeout(timer)
+      video.removeEventListener("loadedmetadata", onReady)
+      video.removeEventListener("loadeddata", onReady)
+      video.removeEventListener("playing", onReady)
+      video.removeEventListener("error", onError)
+    }
+    const onReady = () => {
+      if (video.videoWidth < 1 && video.readyState < 2) return
+      finish()
+      resolve()
+    }
+    const onError = () => {
+      finish()
+      reject(new Error("The camera is not available. Choose a photo instead."))
+    }
+    timer = window.setTimeout(() => {
+      finish()
+      if (video.videoWidth > 0 || video.readyState >= 2) resolve()
+      else reject(new Error("The camera is not available. Choose a photo instead."))
+    }, 8000)
+    video.addEventListener("loadedmetadata", onReady)
+    video.addEventListener("loadeddata", onReady)
+    video.addEventListener("playing", onReady)
+    video.addEventListener("error", onError)
+  })
+  try {
+    await video.play()
+  } catch {
+    // Safari can start playback from the muted autoPlay attribute instead of play().
+  }
+  await waited
+}
+
 async function openRearCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("The camera is not available. Choose a photo instead.")
   }
   const attempts: MediaStreamConstraints[] = [
-    {
-      audio: false,
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 4096 },
-        height: { ideal: 4096 },
-      },
-    },
-    {
-      audio: false,
-      video: { facingMode: { ideal: "environment" } },
-    },
+    { audio: false, video: { facingMode: { ideal: "environment" } } },
+    { audio: false, video: { facingMode: "environment" } },
+    { audio: false, video: true },
   ]
   let last: unknown
   for (const constraints of attempts) {
     try {
-      return await navigator.mediaDevices.getUserMedia(constraints)
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      return await preferRearCamera(stream)
     } catch (cause) {
       last = cause
     }
   }
   throw last instanceof Error ? last : new Error("The camera is not available. Choose a photo instead.")
+}
+
+async function preferRearCamera(stream: MediaStream) {
+  const current = stream.getVideoTracks()[0]
+  if (current?.getSettings?.().facingMode === "environment") return stream
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    const rear = devices.find(
+      (device) => device.kind === "videoinput" && /back|rear|environment/i.test(device.label),
+    )
+    if (!rear?.deviceId || rear.deviceId === current?.getSettings?.().deviceId) return stream
+    const next = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { deviceId: { exact: rear.deviceId } },
+    })
+    stream.getTracks().forEach((track) => track.stop())
+    return next
+  } catch {
+    return stream
+  }
 }
 
 async function cleanedFullFrame(canvas: HTMLCanvasElement) {
