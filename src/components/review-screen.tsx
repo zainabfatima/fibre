@@ -9,7 +9,9 @@ import { ReceiptFileActions } from "@/components/receipt-pdf-actions"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { ReceiptRetake } from "@/components/receipt-retake"
 import { ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
+import { loadReceiptRasters, uploadRotatedReceipt } from "@/components/receipt-orientation"
 import { ReceiptPages } from "@/components/receipt-pages"
+import { rotateRaster } from "@/lib/receiptCrop"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -89,6 +91,7 @@ export function ReviewScreen({
   })
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
+  const [savingTurn, setSavingTurn] = useState(false)
   const [cropOpen, setCropOpen] = useState(false)
   const [retakeOpen, setRetakeOpen] = useState(false)
   const [fileStamp, setFileStamp] = useState(0)
@@ -153,6 +156,25 @@ export function ReviewScreen({
         input.select()
       }
     }, 50)
+  }
+
+  async function saveOrientation() {
+    const quarters = ((rotation / 90) % 4 + 4) % 4
+    if (!quarters || savingTurn) return
+    setSavingTurn(true)
+    try {
+      const loaded = await loadReceiptRasters(fileUrl)
+      const turned = loaded.pages.map((page) => rotateRaster(page, quarters))
+      await uploadRotatedReceipt(projectId, expenseId, turned, loaded.pdf)
+      setRotation(0)
+      setFileStamp(Date.now())
+      toast.success("Saved the new orientation")
+      router.refresh()
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not save the receipt")
+    } finally {
+      setSavingTurn(false)
+    }
   }
 
   async function verify() {
@@ -229,9 +251,14 @@ export function ReviewScreen({
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}>
             Zoom out
           </Button>
-          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setRotation((value) => value + 90)}>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={savingTurn} onClick={() => setRotation((value) => value + 90)}>
             Rotate
           </Button>
+          {rotation % 360 !== 0 ? (
+            <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={savingTurn} onClick={() => void saveOrientation()}>
+              {savingTurn ? "Saving…" : "Save"}
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setCropOpen(true)}>
             Crop
           </Button>

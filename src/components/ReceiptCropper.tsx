@@ -9,6 +9,7 @@ export function ReceiptCropper({
   corners,
   needsManualCrop,
   busy = false,
+  locked = false,
   note,
   pageLabel,
   busyLabel,
@@ -17,6 +18,8 @@ export function ReceiptCropper({
   onResetAuto,
   onUseOriginal,
   onRotate,
+  onSave,
+  saveLabel,
   onDone,
   onCancel,
 }: {
@@ -24,6 +27,7 @@ export function ReceiptCropper({
   corners: Point[]
   needsManualCrop: boolean
   busy?: boolean
+  locked?: boolean
   note?: string | null
   pageLabel?: string | null
   busyLabel?: string | null
@@ -32,9 +36,12 @@ export function ReceiptCropper({
   onResetAuto: () => void
   onUseOriginal: () => void
   onRotate?: () => void
+  onSave?: () => void
+  saveLabel?: string
   onDone?: () => void
   onCancel: () => void
 }) {
+  const unavailable = busy || locked
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sourceRef = useRef<HTMLCanvasElement | null>(null)
   const dragRef = useRef<number | null>(null)
@@ -176,29 +183,38 @@ export function ReceiptCropper({
       <div className="grid shrink-0 gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
-          disabled={busy}
+          disabled={unavailable}
           className="min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
           onClick={onUseCrop}
         >
           {busy && busyLabel ? busyLabel : "Use crop"}
         </button>
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onResetAuto}>
+          <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onResetAuto}>
             Reset to auto
           </button>
-          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onUseOriginal}>
+          <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onUseOriginal}>
             Use original
           </button>
         </div>
-        {onRotate ? (
-          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onRotate}>
-            Rotate
-          </button>
+        {onRotate || onSave ? (
+          <div className={onRotate && onSave ? "grid grid-cols-2 gap-2" : "grid"}>
+            {onRotate ? (
+              <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onRotate}>
+                Rotate
+              </button>
+            ) : null}
+            {onSave ? (
+              <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onSave}>
+                {saveLabel ?? "Save"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {onDone ? (
           <button
             type="button"
-            disabled={busy}
+            disabled={unavailable}
             className="min-h-11 w-full rounded-lg border border-input text-sm font-medium disabled:opacity-60"
             onClick={onDone}
           >

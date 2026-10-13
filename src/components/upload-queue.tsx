@@ -53,6 +53,8 @@ export function UploadQueue({
   const [categoryId, setCategoryId] = useState("")
   const [categoryError, setCategoryError] = useState<string | null>(null)
   const [hydrated, setHydrated] = useState(false)
+  const [reimburse, setReimburse] = useState(false)
+  const [reimburseName, setReimburseName] = useState("")
 
   useEffect(() => {
     try {
@@ -125,6 +127,7 @@ export function UploadQueue({
         body.set("pageCount", String(result.pageCount))
         body.set("cropMethod", result.cropMethod)
         body.set("needsManualCrop", result.needsManualCrop ? "true" : "false")
+        body.set("scanVerified", result.scanVerified ? "true" : "false")
         body.set("cropCorners", JSON.stringify(result.pages.map((page) => page.cropCorners)))
         body.set(
           "file",
@@ -137,6 +140,10 @@ export function UploadQueue({
         })
         body.set("thumb", new File([result.thumbnailBlob], "thumb.webp", { type: result.thumbnailBlob.type || "image/webp" }))
         if (lockedCategory != null) body.set("categoryId", String(lockedCategory))
+        if (reimburse) {
+          body.set("reimbursement", "true")
+          body.set("reimbursementName", reimburseName.trim())
+        }
         const uploaded = await saveScannedReceipt(body)
         if (uploaded.error || !uploaded.id) {
           hadProblem = true
@@ -226,6 +233,31 @@ export function UploadQueue({
           <p role="alert" className="text-sm text-red-700">
             {categoryError}
           </p>
+        ) : null}
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-base">
+          <input
+            type="checkbox"
+            checked={reimburse}
+            onChange={(event) => setReimburse(event.target.checked)}
+            className="size-5 shrink-0"
+          />
+          Reimbursement
+          <span className="text-sm text-muted-foreground">Optional</span>
+        </label>
+        {reimburse ? (
+          <label className="grid gap-1 text-base">
+            Note — person name
+            <input
+              value={reimburseName}
+              onChange={(event) => setReimburseName(event.target.value)}
+              maxLength={80}
+              placeholder="Who to reimburse"
+              className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base"
+            />
+            <span className="text-sm text-muted-foreground">
+              Optional. If you add a name, it shows in the Reimbursement column.
+            </span>
+          </label>
         ) : null}
       </div>
       {scan ? (

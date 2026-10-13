@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { assignInvoiceNumber, clearDuplicate, confirmReturn, deleteExpense, setExpenseBillingStatus, updateExpenseFields } from "@/app/actions/expenses"
-import { ReceiptFileActions } from "@/components/receipt-pdf-actions"
+import { ReceiptRotateSave, receiptTurnSrc, useReceiptTurn, type ReceiptTurn } from "@/components/receipt-orientation"
+import { ReceiptFileActions, ReceiptPrintButton } from "@/components/receipt-pdf-actions"
 import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { ReceiptRetake } from "@/components/receipt-retake"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
@@ -36,6 +37,7 @@ export function CategorySheets({
   readOnly?: boolean
 }) {
   const router = useRouter()
+  const turn = useReceiptTurn()
   const [preview, setPreview] = useState<SheetRow | null>(null)
   const [retake, setRetake] = useState<SheetRow | null>(null)
   const [cropping, setCropping] = useState(false)
@@ -132,6 +134,13 @@ export function CategorySheets({
     else router.refresh()
   }
 
+  async function saveQb(row: SheetRow, qbStatus: boolean) {
+    if (Boolean(row.qbStatus) === qbStatus) return
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, qbStatus })
+    if (result.error) toast.error(result.error)
+    else router.refresh()
+  }
+
   async function saveCategory(row: SheetRow, categoryId: number) {
     const result = await updateExpenseFields({ projectId, expenseId: row.id, categoryId })
     if (result.error) toast.error(result.error)
@@ -172,9 +181,12 @@ export function CategorySheets({
           categories={categories}
           onPreview={setPreview}
           onRetake={setRetake}
+          turn={turn}
+          onTurnSaved={() => router.refresh()}
           onAmount={saveAmount}
           onInvoice={saveInvoice}
           onStatus={saveStatus}
+          onQb={saveQb}
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
@@ -198,9 +210,12 @@ export function CategorySheets({
           categories={categories}
           onPreview={setPreview}
           onRetake={setRetake}
+          turn={turn}
+          onTurnSaved={() => router.refresh()}
           onAmount={saveAmount}
           onInvoice={saveInvoice}
           onStatus={saveStatus}
+          onQb={saveQb}
           onCategory={saveCategory}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
@@ -214,9 +229,9 @@ export function CategorySheets({
       {preview ? (
         <div className="fixed inset-0 z-40 grid place-items-end bg-black/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:place-items-center sm:p-4" onClick={() => setPreview(null)}>
           <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl bg-card p-4" onClick={(event) => event.stopPropagation()}>
-            {preview.thumbUrl ? (
+            {receiptTurnSrc(turn, preview.id, preview.thumbUrl) ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={preview.thumbUrl} alt="Receipt" className="max-h-[70vh] w-full object-contain" />
+              <img src={receiptTurnSrc(turn, preview.id, preview.thumbUrl) ?? ""} alt="Receipt" className="max-h-[70vh] w-full object-contain" />
             ) : (
               <p>Open the file to view this receipt.</p>
             )}
@@ -237,6 +252,21 @@ export function CategorySheets({
                 >
                   Retake picture
                 </button>
+              ) : null}
+              {!readOnly && preview.hasReceipt !== false ? (
+                <ReceiptRotateSave
+                  projectId={projectId}
+                  expenseId={preview.id}
+                  className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                  turn={turn}
+                  onSaved={() => router.refresh()}
+                />
+              ) : null}
+              {!readOnly && preview.hasReceipt !== false ? (
+                <ReceiptPrintButton
+                  expenseId={preview.id}
+                  className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                />
               ) : null}
               {preview.hasReceipt !== false ? <ReceiptFileActions expenseId={preview.id} /> : null}
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium">
@@ -333,6 +363,28 @@ function AmountInput({
   )
 }
 
+function QbSelect({
+  value,
+  onChange,
+  className,
+}: {
+  value: boolean
+  onChange: (yes: boolean) => void
+  className: string
+}) {
+  return (
+    <select
+      aria-label="QuickBooks status"
+      value={value ? "yes" : "no"}
+      onChange={(event) => onChange(event.target.value === "yes")}
+      className={className}
+    >
+      <option value="no">No</option>
+      <option value="yes">Yes</option>
+    </select>
+  )
+}
+
 function CategoryBlock({
   title,
   budget,
@@ -346,9 +398,12 @@ function CategoryBlock({
   categories,
   onPreview,
   onRetake,
+  turn,
+  onTurnSaved,
   onAmount,
   onInvoice,
   onStatus,
+  onQb,
   onCategory,
   onDelete,
   onConfirmDuplicate,
@@ -370,9 +425,12 @@ function CategoryBlock({
   categories: CategoryOption[]
   onPreview: (row: SheetRow) => void
   onRetake: (row: SheetRow) => void
+  turn: ReceiptTurn
+  onTurnSaved: () => void
   onAmount: (row: SheetRow, value: string) => void
   onInvoice: (row: SheetRow, number: string) => void
   onStatus: (row: SheetRow, status: "unpaid" | "paid" | "partial") => void
+  onQb: (row: SheetRow, qbStatus: boolean) => void
   onCategory: (row: SheetRow, categoryId: number) => void
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
@@ -382,7 +440,7 @@ function CategoryBlock({
   allRows: SheetRow[]
   readOnly: boolean
 }) {
-  const tableColumns = 5 + (readOnly ? 0 : 2) + (invoiceTracking ? 3 : 0)
+  const tableColumns = 5 + (readOnly ? 0 : 4) + (invoiceTracking ? 3 : 0)
   const spentCents = sumCents(rows.map((row) => row.amount))
   const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -445,9 +503,9 @@ function CategoryBlock({
                   onClick={() => onPreview(row)}
                   className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-muted text-[10px]"
                 >
-                  {row.thumbUrl ? (
+                  {receiptTurnSrc(turn, row.id, row.thumbUrl) ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={row.thumbUrl} alt="" className="h-full w-full object-cover" />
+                    <img src={receiptTurnSrc(turn, row.id, row.thumbUrl) ?? ""} alt="" className="h-full w-full object-cover" />
                   ) : (
                     "Receipt"
                   )}
@@ -474,6 +532,21 @@ function CategoryBlock({
                       {row.description}
                     </p>
                   ) : null}
+                  {readOnly ? null : (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <label className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground">QB</span>
+                        <QbSelect
+                          value={Boolean(row.qbStatus)}
+                          onChange={(yes) => onQb(row, yes)}
+                          className="h-11 rounded-lg border border-input bg-transparent px-2 text-base"
+                        />
+                      </label>
+                      {row.reimbursementName ? (
+                        <span className="text-sm">Reimbursement: {row.reimbursementName}</span>
+                      ) : null}
+                    </div>
+                  )}
                   {invoiceTracking ? (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="text-sm">{row.invoiceNumber ? `Invoice ${row.invoiceNumber}` : "No invoice"}</span>
@@ -499,6 +572,22 @@ function CategoryBlock({
                     Retake picture
                   </button>
                 )}
+                {!readOnly && row.hasReceipt !== false ? (
+                  <ReceiptRotateSave
+                    projectId={projectId}
+                    expenseId={row.id}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                    turn={turn}
+                    onRotate={() => onPreview(row)}
+                    onSaved={onTurnSaved}
+                  />
+                ) : null}
+                {!readOnly && row.hasReceipt !== false ? (
+                  <ReceiptPrintButton
+                    expenseId={row.id}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
+                  />
+                ) : null}
                 {row.hasReceipt !== false ? (
                   <ReceiptFileActions
                     expenseId={row.id}
@@ -598,7 +687,7 @@ function CategoryBlock({
           </div>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1080px] text-sm">
+          <table className="w-full min-w-[1280px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>
@@ -608,6 +697,8 @@ function CategoryBlock({
                 <th className="px-3 py-2 font-medium">Receipt</th>
                 {readOnly ? null : (
                   <>
+                    <th className="px-3 py-2 font-medium">QB</th>
+                    <th className="px-3 py-2 font-medium">Reimbursement</th>
                     <th className="px-3 py-2 font-medium">Change category</th>
                     <th className="px-3 py-2 font-medium">Delete</th>
                   </>
@@ -672,9 +763,9 @@ function CategoryBlock({
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => onPreview(row)} className="h-12 w-12 overflow-hidden rounded border border-border">
-                        {row.thumbUrl ? (
+                        {receiptTurnSrc(turn, row.id, row.thumbUrl) ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={row.thumbUrl} alt="" className="h-full w-full object-cover" />
+                          <img src={receiptTurnSrc(turn, row.id, row.thumbUrl) ?? ""} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <span className="text-[10px]">File</span>
                         )}
@@ -688,6 +779,22 @@ function CategoryBlock({
                           Retake
                         </button>
                       )}
+                      {!readOnly && row.hasReceipt !== false ? (
+                        <ReceiptRotateSave
+                          projectId={projectId}
+                          expenseId={row.id}
+                          className="h-9 whitespace-nowrap rounded-lg border border-input px-2 text-sm"
+                          turn={turn}
+                          onRotate={() => onPreview(row)}
+                          onSaved={onTurnSaved}
+                        />
+                      ) : null}
+                      {!readOnly && row.hasReceipt !== false ? (
+                        <ReceiptPrintButton
+                          expenseId={row.id}
+                          className="h-9 whitespace-nowrap rounded-lg border border-input px-2 text-sm"
+                        />
+                      ) : null}
                       {row.hasReceipt !== false ? (
                         <ReceiptFileActions
                           expenseId={row.id}
@@ -698,6 +805,16 @@ function CategoryBlock({
                   </td>
                   {readOnly ? null : (
                     <>
+                  <td className="px-3 py-2">
+                    <QbSelect
+                      value={Boolean(row.qbStatus)}
+                      onChange={(yes) => onQb(row, yes)}
+                      className="h-9 rounded-lg border border-input bg-transparent px-2 text-sm"
+                    />
+                  </td>
+                  <td className="max-w-40 truncate px-3 py-2" title={row.reimbursementName ?? undefined}>
+                    {row.reimbursementName || "—"}
+                  </td>
                   <td className="px-3 py-2">
                     <ChangeCategoryCell
                       categories={categories}
@@ -795,7 +912,7 @@ function CategoryBlock({
                   Spent
                 </td>
                 <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
-                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 3) + (invoiceTracking ? 3 : 0)}>
+                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 5) + (invoiceTracking ? 3 : 0)}>
                   {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
                   <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
                 </td>

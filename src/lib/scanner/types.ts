@@ -31,6 +31,8 @@ export type ScanResult = {
   cropMethod: "auto" | "fallback" | "manual" | "none"
   needsManualCrop: boolean
   pages: ScanPageMeta[]
+  /** True when the saved crop has clean borders and no table left in the frame. */
+  scanVerified: boolean
   /** Re-render the same crops with another filter. Used when extraction confidence is low. */
   rerender: (filter: ScanFilter) => Promise<Blob>
 }

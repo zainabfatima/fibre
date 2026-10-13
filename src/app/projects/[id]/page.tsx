@@ -72,6 +72,8 @@ export default async function ProjectExpensesPage({
     verificationStatus: row.verification_status,
     hasReceipt: Boolean(row.receipt_file_path),
     pageCount: row.page_count,
+    qbStatus: Boolean(row.qb_status),
+    reimbursementName: row.reimbursement_name?.trim() || null,
   }))
   const spentCents = moneyToCents(summary?.total_spent ?? 0)
   const receivedCents = sumCents(payments.map((payment) => payment.amount))

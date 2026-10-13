@@ -1,11 +1,14 @@
 import type { Point } from "./types"
 
-/** Default picture frame, as fractions of the on-screen camera preview. */
+/**
+ * Default picture frame, as fractions of the on-screen camera preview.
+ * Tall enough that the total at the bottom of a receipt stays inside the frame.
+ */
 export const defaultViewFrame: Point[] = [
-  { x: 0.06, y: 0.24 },
-  { x: 0.94, y: 0.24 },
-  { x: 0.94, y: 0.72 },
-  { x: 0.06, y: 0.72 },
+  { x: 0.08, y: 0.14 },
+  { x: 0.92, y: 0.14 },
+  { x: 0.92, y: 0.88 },
+  { x: 0.08, y: 0.88 },
 ]
 
 /**

@@ -69,6 +69,13 @@ export async function lookupPageHashes(projectId: string, hashes: string[]) {
   }
 }
 
+function reimbursementNameFrom(formData: FormData) {
+  if (formData.get("reimbursement") !== "true") return null
+  const name = String(formData.get("reimbursementName") ?? "").trim().replace(/\s+/g, " ")
+  if (!name) return null
+  return name.slice(0, 80)
+}
+
 export async function saveScannedReceipt(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "")
   const hashes = String(formData.get("hashes") ?? "")
@@ -170,6 +177,8 @@ export async function saveScannedReceipt(formData: FormData) {
     file_type: isPdf ? "pdf" : "image",
     capture_type: captureType,
     ...(categoryId != null ? { category_id: categoryId } : {}),
+    reimbursement_name: reimbursementNameFrom(formData),
+    scan_verified: formData.get("scanVerified") === "true",
   })
   if (error) {
     await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
@@ -325,6 +334,7 @@ export async function retakeExpenseReceipt(formData: FormData) {
     capture_type: captureType,
     verification_status: "needs_review",
     duplicate_of: null,
+    scan_verified: formData.get("scanVerified") === "true",
   }
   const saved = await supabase.from("expenses").update(patch).eq("project_id", projectId).eq("receipt_file_path", expense.receipt_file_path).select("id")
   if (saved.error || (saved.data?.length ?? 0) === 0) {
@@ -638,6 +648,7 @@ export async function updateExpenseFields(input: {
   receiptNumber?: string
   paymentMethod?: string
   verify?: boolean
+  qbStatus?: boolean
 }) {
   const supabase = await requireAdmin()
   const patch: Database["public"]["Tables"]["expenses"]["Update"] = {}
@@ -653,6 +664,7 @@ export async function updateExpenseFields(input: {
   if ("description" in input) patch.description = simpleDescription(input.description) || null
   if ("receiptNumber" in input) patch.receipt_number = input.receiptNumber?.trim() || null
   if ("paymentMethod" in input) patch.payment_method = input.paymentMethod?.trim() || null
+  if ("qbStatus" in input) patch.qb_status = input.qbStatus === true
   if (input.verify) {
     const { data: existing, error: existingError } = await supabase
       .from("expenses")

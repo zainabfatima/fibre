@@ -20,6 +20,7 @@ import {
   type Point,
   type Raster,
 } from "@/lib/receiptCrop"
+import { processReceipt, type ScannerCv } from "@/lib/scanner/process-receipt"
 import { sha256 } from "@/lib/scanner/hash"
 import { checksFor } from "@/lib/scanner/image"
 import { imagesToPdf, renderPdf } from "@/lib/scanner/pdf"
@@ -40,6 +41,9 @@ type Draft = {
   checks: PageChecks
   previewUrl: string
   processed: Raster | null
+  /** JPEG from processReceipt. Uploaded as-is so a second clean pass cannot bring the table back. */
+  finishedBlob?: Blob | null
+  scanVerified?: boolean
 }
 
 const emptyChecks: PageChecks = { blurry: false, tooSmall: false, glare: false, dark: false, joins: false }
@@ -56,6 +60,7 @@ function pageMethod(page: Draft): CropMethod {
 }
 
 function paintPage(page: Draft): Draft {
+  if (page.finishedBlob && page.choice !== "manual") return page
   const method = pageMethod(page)
   const corners = page.choice === "original" ? fullFrameCorners(page.source.width, page.source.height) : page.corners
   const rendered = renderCrop(page.source, corners, method, page.confidence)
@@ -99,7 +104,10 @@ export function ReceiptScanner({
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [turning, setTurning] = useState(false)
+  const turningRef = useRef(false)
   const [status, setStatus] = useState<string | null>(null)
+  const [turnedPage, setTurnedPage] = useState<string | null>(null)
   const editing = pages.find((page) => page.id === editingId) ?? null
   const started = useRef(false)
   useEffect(() => {
@@ -120,6 +128,50 @@ export function ReceiptScanner({
       document.body.style.overflow = previous
     }
   }, [editingId, previewSrc])
+  async function addFinished(finished: Blob, original: Blob, verified: boolean) {
+    const hash = await sha256(original)
+    const source = await decodeReceiptFile(finished)
+    const frame = fullFrameCorners(source.width, source.height)
+    const id = crypto.randomUUID()
+    const draft: Draft = {
+      id,
+      hash,
+      original,
+      source,
+      corners: frame,
+      autoCorners: frame,
+      autoMethod: "auto",
+      choice: "auto",
+      confidence: verified ? 1 : 0.5,
+      checks: emptyChecks,
+      previewUrl: rasterToDataUrl(source),
+      processed: source,
+      finishedBlob: finished,
+      scanVerified: verified,
+    }
+    setPages((current) => [...current, draft].slice(0, 20))
+    setEditingId(null)
+    setCamera(false)
+  }
+
+  async function addScannedFile(file: File) {
+    setStatus("Finding the receipt")
+    try {
+      const cv = await loadOpenCv()
+      if (!cv) {
+        await addBlob(file)
+        return
+      }
+      const canvas = await canvasFromFile(file)
+      const scan = await processReceipt(cv as unknown as ScannerCv, canvas)
+      await addFinished(scan.blob, file, scan.verified)
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : "This photo could not be opened")
+    } finally {
+      setStatus(null)
+    }
+  }
+
   async function addBlob(blob: Blob, hashBlob = blob, framed = false) {
     setStatus(framed ? "Cropping the frame" : "Finding the receipt")
     try {
@@ -159,7 +211,10 @@ export function ReceiptScanner({
   }
 
   async function rotateEditing() {
-    if (!editing) return
+    if (!editing || turningRef.current) return
+    const pageId = editing.id
+    turningRef.current = true
+    setTurning(true)
     setStatus("Turning the photo")
     try {
       const source = rotateRaster(editing.source, 1)
@@ -176,12 +231,24 @@ export function ReceiptScanner({
         confidence: detected.confidence,
         processed: null,
       })
-      setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+      setPages((current) => current.map((page) => (page.id === pageId ? next : page)))
+      setTurnedPage(pageId)
     } catch (cause) {
       setNote(cause instanceof Error ? cause.message : "Could not rotate the photo")
     } finally {
+      turningRef.current = false
+      setTurning(false)
       setStatus(null)
     }
+  }
+
+  function saveEditingTurn() {
+    if (!editing) return
+    const next = paintPage(editing)
+    setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+    setTurnedPage(null)
+    setEditingId(null)
+    setStatus("Orientation saved on this page")
   }
 
   async function acceptFiles(files: File[]) {
@@ -195,7 +262,7 @@ export function ReceiptScanner({
       return
     }
     if (files.length > 1) setBatchChoice(true)
-    for (const file of files.slice(0, 20)) await addBlob(file)
+    for (const file of files.slice(0, 20)) await addScannedFile(file)
   }
 
   const managed: ManagedPage[] = useMemo(
@@ -211,12 +278,21 @@ export function ReceiptScanner({
   async function buildResult(group: Draft[], type: CaptureType): Promise<ScanResult> {
     const painted = group.map((page) => (page.processed ? page : paintPage(page)))
     const images = painted.map((page) => page.processed).filter((image): image is Raster => Boolean(image))
-    const jpegs = await Promise.all(images.map((image) => rasterToJpegBlob(image, 0.85)))
     const multi = type !== "single" && painted.length > 1
-    const fileBlob = multi ? await imagesToPdf(jpegs) : jpegs[0]
+    const keepFinished = painted.length > 0 && painted.every((page) => page.finishedBlob && page.choice !== "manual")
+    const fallback = images[0]
+    if (!keepFinished && !fallback) throw new Error("The scan could not be saved")
+    const fileBlob = keepFinished
+      ? painted.length === 1
+        ? (painted[0].finishedBlob as Blob)
+        : await imagesToPdf(painted.map((page) => page.finishedBlob as Blob))
+      : multi
+        ? await imagesToPdf(await Promise.all(images.map((image) => rasterToJpegBlob(image, 0.85))))
+        : await rasterToJpegBlob(fallback as Raster, 0.85)
     if (!fileBlob) throw new Error("The scan could not be saved")
     if (fileBlob.size > 15 * 1024 * 1024) setNote("This scan is over 15 MB.")
     const thumbSource = images[0]
+    if (!thumbSource) throw new Error("The scan could not be saved")
     const thumbCanvas = document.createElement("canvas")
     thumbCanvas.width = 400
     thumbCanvas.height = Math.max(1, Math.round((thumbSource.height / thumbSource.width) * 400))
@@ -247,6 +323,7 @@ export function ReceiptScanner({
         filter: "bw" as const,
         checks: page.checks,
       })),
+      scanVerified: keepFinished && painted.every((page) => page.scanVerified === true),
       rerender: async () => fileBlob,
     }
   }
@@ -304,7 +381,14 @@ export function ReceiptScanner({
       {camera ? (
         <CameraCapture
           pageNumber={pages.length + 1}
-          onCapture={(blob, framed) => void addBlob(blob, blob, framed)}
+          onCapture={(scan) => {
+            setStatus("Saving the scan")
+            void addFinished(scan.blob, scan.original, scan.verified)
+              .catch((cause: unknown) => {
+                setNote(cause instanceof Error ? cause.message : "This photo could not be opened")
+              })
+              .finally(() => setStatus(null))
+          }}
           onClose={() => setCamera(false)}
         />
       ) : null}
@@ -330,6 +414,7 @@ export function ReceiptScanner({
           corners={editing.corners}
           needsManualCrop={editing.autoMethod === "none" && editing.choice !== "manual"}
           busy={busy}
+          locked={turning}
           note={warning}
           onCancel={onCancel}
           onChange={(corners) => {
@@ -340,6 +425,7 @@ export function ReceiptScanner({
           onUseCrop={() => {
             const next = paintPage({ ...editing, choice: pageMethod(editing) === "none" ? "original" : editing.choice })
             setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+            setTurnedPage(null)
             setEditingId(null)
           }}
           onResetAuto={() => {
@@ -359,6 +445,7 @@ export function ReceiptScanner({
             setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
           }}
           onRotate={() => void rotateEditing()}
+          onSave={turnedPage === editing.id ? saveEditingTurn : undefined}
           onDone={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
         />
       ) : null}
@@ -443,6 +530,17 @@ export function ReceiptScanner({
       ) : null}
     </div>
   )
+}
+
+async function canvasFromFile(file: Blob) {
+  const raster = await decodeReceiptFile(file)
+  const canvas = document.createElement("canvas")
+  canvas.width = raster.width
+  canvas.height = raster.height
+  const context = canvas.getContext("2d")
+  if (!context) throw new Error("Could not read the photo")
+  context.putImageData(new ImageData(new Uint8ClampedArray(raster.data), raster.width, raster.height), 0, 0)
+  return canvas
 }
 
 function checkLabels(checks: PageChecks) {
