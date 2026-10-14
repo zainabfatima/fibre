@@ -336,10 +336,7 @@ export function ReceiptScanner({
       const group = pages.map((page) => paintPage(editing && page.id === editing.id ? editing : page))
       setPages(group)
       const warnings = group.flatMap((page) => checkLabels(page.checks))
-      if (warnings.length && !note && !direct) {
-        setNote(warnings[0])
-        return
-      }
+      if (warnings.length && !direct) setNote(warnings[0])
       if (!direct && !previewSrc) {
         const first = group[0]?.previewUrl
         if (first) setPreviewSrc(first)
@@ -382,7 +379,10 @@ export function ReceiptScanner({
       {camera ? (
         <CameraCapture
           pageNumber={pages.length + 1}
-          onCapture={(blob, framed) => void addBlob(blob, blob, framed)}
+          onCapture={(blob, framed) => {
+            setCamera(false)
+            void addBlob(blob, blob, framed)
+          }}
           onClose={() => setCamera(false)}
         />
       ) : null}
@@ -417,26 +417,38 @@ export function ReceiptScanner({
             )
           }}
           onUseCrop={() => {
-            const next = paintPage({ ...editing, choice: pageMethod(editing) === "none" ? "original" : editing.choice })
-            setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
-            setTurnedPage(null)
-            setEditingId(null)
+            try {
+              const next = paintPage({ ...editing, choice: pageMethod(editing) === "none" ? "original" : editing.choice })
+              setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+              setTurnedPage(null)
+              setEditingId(null)
+            } catch (cause) {
+              setNote(cause instanceof Error ? cause.message : "The crop could not be used")
+            }
           }}
           onResetAuto={() => {
-            const next = paintPage({
-              ...editing,
-              corners: editing.autoCorners,
-              choice: editing.autoMethod === "none" ? "original" : "auto",
-            })
-            setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+            try {
+              const next = paintPage({
+                ...editing,
+                corners: editing.autoCorners,
+                choice: editing.autoMethod === "none" ? "original" : "auto",
+              })
+              setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+            } catch (cause) {
+              setNote(cause instanceof Error ? cause.message : "The auto crop could not be restored")
+            }
           }}
           onUseOriginal={() => {
-            const next = paintPage({
-              ...editing,
-              choice: "original",
-              corners: fullFrameCorners(editing.source.width, editing.source.height),
-            })
-            setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+            try {
+              const next = paintPage({
+                ...editing,
+                choice: "original",
+                corners: fullFrameCorners(editing.source.width, editing.source.height),
+              })
+              setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
+            } catch (cause) {
+              setNote(cause instanceof Error ? cause.message : "The original photo could not be used")
+            }
           }}
           onRotate={() => void rotateEditing()}
           onSave={turnedPage === editing.id ? saveEditingTurn : undefined}
@@ -477,13 +489,14 @@ export function ReceiptScanner({
               />
             </label>
           </div>
+          {note && !editing ? <p className="text-sm text-red-700">{note}</p> : null}
           {pages.length > 0 ? (
             <div className="sticky bottom-0 z-20 grid gap-2 border-t border-border bg-background/95 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
               <button
                 type="button"
                 disabled={busy}
                 className="min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
-                onClick={() => void confirm(pages.length === 1 ? "single" : captureType)}
+                onClick={() => void confirm(pages.length === 1 ? "single" : captureType, true)}
               >
                 {busy ? "Saving…" : "Done"}
               </button>

@@ -40,6 +40,11 @@ export function CameraCapture({
   }
 
   function stopCamera() {
+    const video = videoRef.current
+    if (video) {
+      video.pause()
+      video.srcObject = null
+    }
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
   }
@@ -82,8 +87,7 @@ export function CameraCapture({
     void start()
     return () => {
       cancelled = true
-      streamRef.current?.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
+      stopCamera()
     }
   }, [])
 
@@ -114,7 +118,9 @@ export function CameraCapture({
       const ordered = orderCorners(corners)
       const cropped = cornersAreUsable(ordered) ? renderCrop(raster, ordered, "manual", 1).image : raster
       const framed = cornersAreUsable(ordered)
-      onCapture(await rasterToJpegBlob(cropped, 0.92), framed)
+      const blob = await rasterToJpegBlob(cropped, 0.92)
+      stopCamera()
+      onCapture(blob, framed)
     } catch (cause) {
       stopCamera()
       setError(cause instanceof Error ? cause.message : "The photo could not be taken.")

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 
 import type { Point, Raster } from "@/lib/receiptCrop"
 
@@ -147,8 +148,8 @@ export function ReceiptCropper({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex h-dvh max-w-[100vw] flex-col overflow-hidden bg-background">
+  const screen = (
+    <div className="fixed inset-0 z-[90] flex h-dvh max-w-[100vw] flex-col overflow-hidden bg-background">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
         <div>
           <h2 className="font-medium">Crop receipt</h2>
@@ -180,7 +181,7 @@ export function ReceiptCropper({
         />
         {note ? <p className="mt-3 text-sm text-red-700">{note}</p> : null}
       </div>
-      <div className="grid shrink-0 gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="relative z-10 grid shrink-0 touch-manipulation gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           disabled={unavailable}
@@ -224,4 +225,6 @@ export function ReceiptCropper({
       </div>
     </div>
   )
+
+  return createPortal(screen, document.body)
 }
