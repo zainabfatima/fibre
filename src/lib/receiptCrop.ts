@@ -33,13 +33,7 @@ export type CropResult = CropDetection & {
 const DETECT_LONG_SIDE = 1000
 const EXPORT_LONG_SIDE = 2000
 const DECODE_LONG_SIDE = 4096
-// 4.10.0 was removed from the docs site (404). 4.13.0 is the current build.
-// The second URL is the one retry if that script fails to load or hangs.
-const OPENCV_SOURCES = [
-  "https://docs.opencv.org/4.13.0/opencv.js",
-  "https://docs.opencv.org/4.9.0/opencv.js",
-]
-const OPENCV_ATTEMPT_MS = 10000
+const OPENCV_SRC = "https://docs.opencv.org/4.10.0/opencv.js"
 
 type CvMat = {
   rows: number
@@ -124,15 +118,7 @@ export async function loadOpenCv(timeoutMs = 8000): Promise<CvApi | null> {
   if (typeof window === "undefined") return null
   const ready = readOpenCv()
   if (ready) return ready
-  if (!openCvPromise) {
-    openCvPromise = injectOpenCv().then((cv) => {
-      if (!cv && !readOpenCv()) openCvPromise = null
-      return cv
-    })
-  }
-  // A non-finite timeout waits for the script itself. Callers that only need a
-  // quick answer still race the shared load and keep going when it is slow.
-  if (!Number.isFinite(timeoutMs)) return openCvPromise
+  if (!openCvPromise) openCvPromise = injectOpenCv()
   return Promise.race([
     openCvPromise,
     new Promise<null>((resolve) => {
@@ -1077,70 +1063,36 @@ function readOpenCv() {
 }
 
 function injectOpenCv() {
-  return injectOpenCvAttempt(0)
-}
-
-function clearPartialOpenCv() {
-  if (readOpenCv()) return
-  delete (window as unknown as { cv?: CvApi }).cv
-}
-
-function injectOpenCvAttempt(attempt: number): Promise<CvApi | null> {
-  return new Promise((resolve) => {
+  return new Promise<CvApi | null>((resolve) => {
     const existing = readOpenCv()
     if (existing) {
       resolve(existing)
       return
     }
     const script = document.createElement("script")
-    script.src = OPENCV_SOURCES[Math.min(attempt, OPENCV_SOURCES.length - 1)]
+    script.src = OPENCV_SRC
     script.async = true
     let settled = false
-    let timer = 0
-    const succeed = (cv: CvApi) => {
+    const finish = (value: CvApi | null) => {
       if (settled) return
       settled = true
-      window.clearTimeout(timer)
-      resolve(cv)
+      resolve(value)
     }
-    const fail = () => {
-      if (settled) return
-      const ready = readOpenCv()
-      if (ready) {
-        succeed(ready)
-        return
-      }
-      settled = true
-      window.clearTimeout(timer)
-      script.remove()
-      clearPartialOpenCv()
-      if (attempt < 1) {
-        resolve(injectOpenCvAttempt(attempt + 1))
-        return
-      }
-      resolve(null)
-    }
-    timer = window.setTimeout(() => fail(), OPENCV_ATTEMPT_MS)
-    script.onerror = () => fail()
+    script.onerror = () => finish(null)
     script.onload = () => {
       const cv = (window as unknown as { cv?: CvApi }).cv
       if (!cv) {
-        fail()
+        finish(null)
         return
       }
       if (typeof cv.GaussianBlur === "function") {
-        succeed(cv)
+        finish(cv)
         return
       }
       const previous = cv.onRuntimeInitialized
       cv.onRuntimeInitialized = () => {
         previous?.()
-        const ready = readOpenCv()
-        if (!ready) {
-          fail()
-          return
-        }
-        succeed(ready)
+        finish(readOpenCv())
       }
     }
     document.head.appendChild(script)

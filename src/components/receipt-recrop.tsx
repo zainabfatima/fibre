@@ -17,7 +17,6 @@ import {
   type Point,
   type Raster,
 } from "@/lib/receiptCrop"
-import { uploadRotatedReceipt } from "@/components/receipt-orientation"
 import { imagesToPdf, renderPdf } from "@/lib/scanner/pdf"
 
 type LoadedPage = {
@@ -103,8 +102,6 @@ export function ReceiptRecrop({
   const [turning, setTurning] = useState(false)
   const [working, setWorking] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [savingTurn, setSavingTurn] = useState(false)
-  const [quarterTurns, setQuarterTurns] = useState<number[]>([])
   const lockRef = useRef(false)
   const page = pages[index] ?? null
 
@@ -146,7 +143,6 @@ export function ReceiptRecrop({
         if (loaded.length === 0) throw new Error("Could not open the receipt")
         setSourceIsPdf(type.includes("pdf"))
         setPages(loaded)
-        setQuarterTurns(loaded.map(() => 0))
         setAccepted(loaded.map(() => null))
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not open the receipt")
@@ -180,39 +176,11 @@ export function ReceiptRecrop({
             : item,
         ),
       )
-      setQuarterTurns((current) => {
-        const next = current.slice()
-        while (next.length <= index) next.push(0)
-        next[index] += 1
-        return next
-      })
     } catch (cause) {
       setNote(cause instanceof Error ? cause.message : "Could not rotate the photo")
     } finally {
       lockRef.current = false
       setTurning(false)
-    }
-  }
-
-  async function saveOrientation() {
-    if (lockRef.current || pages.length === 0) return
-    if (!quarterTurns.some((value) => value % 4 !== 0)) return
-    lockRef.current = true
-    setSavingTurn(true)
-    setNote(null)
-    try {
-      await uploadRotatedReceipt(
-        projectId,
-        expenseId,
-        pages.map((item) => item.source),
-        sourceIsPdf,
-      )
-      toast.success("Saved the new orientation")
-      onSaved()
-    } catch (cause) {
-      setNote(cause instanceof Error ? cause.message : "Could not save the receipt")
-      setSavingTurn(false)
-      lockRef.current = false
     }
   }
 
@@ -298,8 +266,7 @@ export function ReceiptRecrop({
       image={page.source}
       corners={page.corners}
       needsManualCrop={page.autoMethod === "none" && !page.moved}
-      busy={saving || working}
-      locked={turning || savingTurn}
+      busy={saving || working || turning}
       busyLabel={saving ? "Saving…" : null}
       note={note}
       pageLabel={pages.length > 1 ? `Page ${index + 1} of ${pages.length}` : null}
@@ -320,8 +287,6 @@ export function ReceiptRecrop({
       }}
       onUseOriginal={() => void commit("original")}
       onRotate={() => void rotate()}
-      onSave={quarterTurns.some((value) => value % 4 !== 0) ? () => void saveOrientation() : undefined}
-      saveLabel={savingTurn ? "Saving…" : "Save"}
     />
   )
 }

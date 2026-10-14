@@ -40,21 +40,8 @@ export function CameraCapture({
   }
 
   function stopCamera() {
-    const video = videoRef.current
-    const stream = (video?.srcObject as MediaStream | null) ?? streamRef.current
-    stream?.getTracks().forEach((track) => track.stop())
+    streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
-    if (!video) return
-    video.pause()
-    video.srcObject = null
-    video.removeAttribute("src")
-    try {
-      video.load()
-    } catch {
-      // The element can already be gone when the camera closes.
-    }
-    video.style.display = "none"
-    video.style.pointerEvents = "none"
   }
 
   useEffect(() => {
@@ -95,7 +82,8 @@ export function CameraCapture({
     void start()
     return () => {
       cancelled = true
-      stopCamera()
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
     }
   }, [])
 
@@ -126,12 +114,7 @@ export function CameraCapture({
       const ordered = orderCorners(corners)
       const cropped = cornersAreUsable(ordered) ? renderCrop(raster, ordered, "manual", 1).image : raster
       const framed = cornersAreUsable(ordered)
-      const blob = await rasterToJpegBlob(cropped, 0.92)
-      stopCamera()
-      // Let the shutter gesture finish before the crop screen opens. Closing the
-      // live video in the same tap makes iPhone Safari drop every later tap.
-      await new Promise((resolve) => window.setTimeout(resolve, 60))
-      onCapture(blob, framed)
+      onCapture(await rasterToJpegBlob(cropped, 0.92), framed)
     } catch (cause) {
       stopCamera()
       setError(cause instanceof Error ? cause.message : "The photo could not be taken.")
@@ -164,7 +147,6 @@ export function CameraCapture({
   }
 
   function pointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    event.preventDefault()
     if (capturing) return
     const { x, y, rect } = pointerPoint(event)
     const px = x * rect.width
@@ -228,7 +210,7 @@ export function CameraCapture({
         <>
           <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
           <div
-            className="absolute inset-0 z-10"
+            className="absolute inset-0 z-10 touch-none"
             onPointerDown={pointerDown}
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}

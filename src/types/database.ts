@@ -233,9 +233,6 @@ export type Database = {
           page_count: number
           file_type: string
           capture_type: string
-          qb_status: boolean
-          reimbursement_name: string | null
-          scan_verified: boolean
         }
         Insert: {
           id?: string
@@ -273,9 +270,6 @@ export type Database = {
           page_count?: number
           file_type?: string
           capture_type?: string
-          qb_status?: boolean
-          reimbursement_name?: string | null
-          scan_verified?: boolean
         }
         Update: {
           id?: string
@@ -313,9 +307,6 @@ export type Database = {
           page_count?: number
           file_type?: string
           capture_type?: string
-          qb_status?: boolean
-          reimbursement_name?: string | null
-          scan_verified?: boolean
         }
         Relationships: []
       }
@@ -427,9 +418,6 @@ export type Database = {
           crop_corners: Json | null
           crop_method: string | null
           needs_manual_crop: boolean
-          qb_status: boolean
-          reimbursement_name: string | null
-          scan_verified: boolean
         }
         Relationships: []
       }

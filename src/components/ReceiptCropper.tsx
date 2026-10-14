@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { createPortal } from "react-dom"
 
 import type { Point, Raster } from "@/lib/receiptCrop"
 
@@ -10,7 +9,6 @@ export function ReceiptCropper({
   corners,
   needsManualCrop,
   busy = false,
-  locked = false,
   note,
   pageLabel,
   busyLabel,
@@ -19,8 +17,6 @@ export function ReceiptCropper({
   onResetAuto,
   onUseOriginal,
   onRotate,
-  onSave,
-  saveLabel,
   onDone,
   onCancel,
 }: {
@@ -28,7 +24,6 @@ export function ReceiptCropper({
   corners: Point[]
   needsManualCrop: boolean
   busy?: boolean
-  locked?: boolean
   note?: string | null
   pageLabel?: string | null
   busyLabel?: string | null
@@ -37,29 +32,12 @@ export function ReceiptCropper({
   onResetAuto: () => void
   onUseOriginal: () => void
   onRotate?: () => void
-  onSave?: () => void
-  saveLabel?: string
   onDone?: () => void
   onCancel: () => void
 }) {
-  const unavailable = busy || locked
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sourceRef = useRef<HTMLCanvasElement | null>(null)
   const dragRef = useRef<number | null>(null)
-  const acted = useRef(0)
-  const screenRef = useRef<HTMLDivElement>(null)
-  const unavailableRef = useRef(unavailable)
-  const actionsRef = useRef<Record<string, (() => void) | undefined>>({})
-  unavailableRef.current = unavailable
-  actionsRef.current = {
-    cancel: onCancel,
-    crop: onUseCrop,
-    reset: onResetAuto,
-    original: onUseOriginal,
-    rotate: onRotate,
-    save: onSave,
-    done: onDone,
-  }
   const [drag, setDrag] = useState<number | null>(null)
   const displayWidth = Math.max(1, Math.min(image.width, 1000))
   const displayHeight = Math.max(1, Math.round(image.height * (displayWidth / image.width)))
@@ -78,43 +56,6 @@ export function ReceiptCropper({
   useEffect(() => {
     paint(corners)
   }, [corners, drag])
-
-  useEffect(() => {
-    const html = document.documentElement
-    const previousOverflow = html.style.overflow
-    html.style.overflow = "hidden"
-    function run(name: string | undefined) {
-      if (!name || unavailableRef.current) return
-      const action = actionsRef.current[name]
-      if (!action) return
-      const now = Date.now()
-      if (now - acted.current < 500) return
-      acted.current = now
-      action()
-    }
-    function buttonName(x: number, y: number) {
-      const buttons = screenRef.current?.querySelectorAll<HTMLButtonElement>("[data-crop]")
-      if (!buttons) return
-      for (const button of buttons) {
-        if (button.disabled) continue
-        const rect = button.getBoundingClientRect()
-        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return button.dataset.crop
-      }
-    }
-    function onTouchEnd(event: TouchEvent) {
-      const touch = event.changedTouches[0]
-      if (!touch) return
-      const name = buttonName(touch.clientX, touch.clientY)
-      if (!name) return
-      event.preventDefault()
-      run(name)
-    }
-    document.addEventListener("touchend", onTouchEnd, { capture: true, passive: false })
-    return () => {
-      html.style.overflow = previousOverflow
-      document.removeEventListener("touchend", onTouchEnd, true)
-    }
-  }, [])
 
   function paint(next: Point[]) {
     const canvas = canvasRef.current
@@ -199,30 +140,18 @@ export function ReceiptCropper({
     }
   }
 
-  function tap(name: string) {
-    return () => {
-      if (unavailableRef.current) return
-      const action = actionsRef.current[name]
-      if (!action) return
-      const now = Date.now()
-      if (now - acted.current < 500) return
-      acted.current = now
-      action()
-    }
-  }
-
-  const screen = (
-    <div ref={screenRef} className="fixed inset-0 z-[80] grid grid-rows-[auto_minmax(0,1fr)_auto] bg-background">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+  return (
+    <div className="fixed inset-0 z-50 flex h-dvh max-w-[100vw] flex-col overflow-hidden bg-background">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
         <div>
           <h2 className="font-medium">Crop receipt</h2>
           {pageLabel ? <p className="text-sm text-muted-foreground">{pageLabel}</p> : null}
         </div>
-        <button type="button" data-crop="cancel" className="min-h-11 px-3 text-sm underline" onClick={tap("cancel")}>
+        <button type="button" onClick={onCancel} className="min-h-11 px-3 text-sm underline">
           Cancel
         </button>
       </div>
-      <div className="flex min-h-0 flex-col gap-3 overflow-hidden px-3 py-3">
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
         {needsManualCrop ? (
           <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" role="status">
             The paper edges were not clear. Drag the four corners onto the receipt, or use the original photo.
@@ -236,7 +165,7 @@ export function ReceiptCropper({
           ref={canvasRef}
           width={displayWidth}
           height={displayHeight}
-          className="mx-auto min-h-0 w-auto max-w-full flex-1 rounded-lg bg-neutral-950 object-contain"
+          className="mx-auto block h-auto w-full max-w-full touch-none rounded-lg bg-neutral-950"
           onPointerDown={pointerDown}
           onPointerMove={pointerMove}
           onPointerUp={pointerUp}
@@ -244,45 +173,34 @@ export function ReceiptCropper({
         />
         {note ? <p className="mt-3 text-sm text-red-700">{note}</p> : null}
       </div>
-      <div className="grid touch-manipulation gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="grid shrink-0 gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
-          disabled={unavailable}
+          disabled={busy}
           className="min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
-          data-crop="crop"
-          onClick={tap("crop")}
+          onClick={onUseCrop}
         >
           {busy && busyLabel ? busyLabel : "Use crop"}
         </button>
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" data-crop="reset" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={tap("reset")}>
+          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onResetAuto}>
             Reset to auto
           </button>
-          <button type="button" data-crop="original" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={tap("original")}>
+          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onUseOriginal}>
             Use original
           </button>
         </div>
-        {onRotate || onSave ? (
-          <div className={onRotate && onSave ? "grid grid-cols-2 gap-2" : "grid"}>
-            {onRotate ? (
-              <button type="button" data-crop="rotate" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={tap("rotate")}>
-                Rotate
-              </button>
-            ) : null}
-            {onSave ? (
-              <button type="button" data-crop="save" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={tap("save")}>
-                {saveLabel ?? "Save"}
-              </button>
-            ) : null}
-          </div>
+        {onRotate ? (
+          <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onRotate}>
+            Rotate
+          </button>
         ) : null}
         {onDone ? (
           <button
             type="button"
-            disabled={unavailable}
+            disabled={busy}
             className="min-h-11 w-full rounded-lg border border-input text-sm font-medium disabled:opacity-60"
-            data-crop="done"
-            onClick={tap("done")}
+            onClick={onDone}
           >
             {busy ? "Saving…" : "Done"}
           </button>
@@ -290,6 +208,4 @@ export function ReceiptCropper({
       </div>
     </div>
   )
-
-  return createPortal(screen, document.body)
 }

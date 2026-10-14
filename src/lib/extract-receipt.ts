@@ -9,10 +9,7 @@ import { centsToMoney, moneyToCents, parseSignedAmount } from "@/lib/money"
 import {
   categoryPromptList,
   extractionSystemPrompt,
-  extractionUserInstruction,
-  ORIGINAL_AMOUNT_PROMPT,
   parseExtraction,
-  RECEIPT_AMOUNT_PROMPT,
   type Extraction,
 } from "@/lib/extraction"
 import { simpleDescription } from "@/lib/simple-description"
@@ -85,7 +82,11 @@ export async function extractExpense(
     (expense.page_count ?? 1) > 1 || type === "application/pdf"
       ? "These pages belong to ONE receipt or invoice. Use the FINAL total from the page that says Total, Amount Due, or Balance Due, usually the last page, not a page subtotal. Combine line items from all pages."
       : "Extract this receipt."
-  const instruction = extractionUserInstruction(instructionBase, manualRequested)
+  const descriptionAsk =
+    "description is one short phrase of what was bought, a few words such as Lumber and screws, Paint, Dumpster rental, or Fuel. Do not list every line item."
+  const instruction = manualRequested
+    ? `${instructionBase} The category is already chosen by the user. Do not skip the receipt total. Return vendor, date, time, total_amount_paid, receipt_number, payment_method, card_last4, and description. ${descriptionAsk} total_amount_paid is the final amount paid whenever that total is visible. If this is a return or refund, total_amount_paid is negative. Parentheses around an amount, such as (12.50) or ($12.50), mean a negative amount.`
+    : `${instructionBase} ${descriptionAsk}`
   const embedded = type === "application/pdf" ? extractEmbeddedImages(bytes) : []
   const imageMedia: ReceiptMedia[] = embedded.slice(0, 20).map((image) => ({
     type: "image",
@@ -119,7 +120,8 @@ export async function extractExpense(
         ]
   const primary = imageMedia.length > 0 ? imageMedia : fileMedia
   const alternate = imageMedia.length > 0 && type === "application/pdf" ? fileMedia : null
-  const amountPrompt = RECEIPT_AMOUNT_PROMPT
+  const amountPrompt =
+    "Read this black-and-white receipt. Return ONLY JSON: {\"vendor\":\"\",\"date\":\"YYYY-MM-DD or null\",\"time\":\"HH:MM or null\",\"total_amount_paid\":null,\"description\":\"\",\"receipt_number\":null,\"payment_method\":null,\"card_last4\":null}. total_amount_paid is the final amount paid (Total, Amount Due, or Balance Due). A return, refund, or credit is negative. An amount in parentheses, such as (12.50) or ($12.50), is negative: -12.50. Keep the minus sign. Use null if no total is visible. Do not guess a number. description is one short phrase of what was bought, a few words, not a list of line items. card_last4 is only the last 4 digits."
 
   let rawText = ""
   try {
@@ -134,7 +136,7 @@ export async function extractExpense(
           env.ANTHROPIC_MODEL,
           amountPrompt,
           alternate ?? primary,
-          "Extract the final amount paid. Leave unknown fields null. Do not invent them.",
+          "Extract the final amount paid.",
           800,
         )
         rawText = `${rawText}\n${retryText}`
@@ -148,26 +150,6 @@ export async function extractExpense(
         }
       } catch {
         // Keep the first read. A failed second look must not drop a total already found.
-      }
-    }
-    if (paidCents == null && expense.original_file_path) {
-      try {
-        const originalRead = await readOriginalAmount(
-          supabase,
-          expense.original_file_path,
-          client,
-          env.ANTHROPIC_MODEL,
-        )
-        if (originalRead) {
-          rawText = `${rawText}\n${originalRead.text}`
-          const originalCents = paidCentsFrom(originalRead.extracted) ?? salvagePaidCents(originalRead.text)
-          if (originalCents != null) {
-            paidCents = originalCents
-            extracted = preferExtraction(originalRead.extracted, extracted)
-          }
-        }
-      } catch {
-        // The cleaned scan is still saved. A failed look at the color photo must not drop it.
       }
     }
     const byCode = new Map(categories.map((category) => [category.code, category.id]))
@@ -248,35 +230,6 @@ async function askClaude(
     .join("\n")
 }
 
-async function readOriginalAmount(
-  supabase: ReturnType<typeof createAdminClient>,
-  path: string,
-  client: Anthropic,
-  model: string,
-) {
-  const downloaded = await supabase.storage.from("receipt-originals").download(path)
-  if (downloaded.error || !downloaded.data) return null
-  const bytes = Buffer.from(await downloaded.data.arrayBuffer())
-  if (bytes.length < 32 || bytes.length > 4_500_000) return null
-  const type = mediaType(path, bytes)
-  if (type === "application/pdf") return null
-  const media: ReceiptMedia[] = [
-    {
-      type: "image",
-      source: { type: "base64", media_type: type, data: bytes.toString("base64") },
-    },
-  ]
-  const text = await askClaude(
-    client,
-    model,
-    ORIGINAL_AMOUNT_PROMPT,
-    media,
-    "Extract the final amount paid from the original photo. Leave unknown fields null. Do not invent them.",
-    800,
-  )
-  return { text, extracted: tryParseExtraction(text) }
-}
-
 function tryParseExtraction(text: string) {
   try {
     return parseExtraction(text)
@@ -335,10 +288,10 @@ const IDENTITY_SYSTEM = `You read a construction receipt and return ONLY JSON. N
   "date": "YYYY-MM-DD or null",
   "time": "HH:MM or null",
   "total_amount_paid": null,
-  "payment_method": "cash, check, visa, mastercard, amex, discover, debit, other, or null",
+  "payment_method": "cash, check, visa, mastercard, amex, discover, debit, or other",
   "card_last4": "last 4 digits or null"
 }
-total_amount_paid is required when the total is visible, and null only when no total is printed. Do not guess a number. date, time, receipt_number, payment_method, and card_last4 are null when they are not clearly printed. Do not invent them. time is the printed transaction time in 24-hour HH:MM, or null. card_last4 is only the last 4 digits. Never return a full card number. payment_method is the payment type or card brand, not the card number. A return or an amount in parentheses is a negative total_amount_paid. A leading minus stays negative.`
+Do not guess. time is the printed transaction time in 24-hour HH:MM, or null. card_last4 is only the last 4 digits. Never return a full card number. payment_method is the payment type or card brand, not the card number. A return or an amount in parentheses is a negative total_amount_paid.`
 
 function identityChecked(value: unknown) {
   return Boolean(

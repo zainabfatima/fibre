@@ -90,7 +90,7 @@ export function parseExtraction(text: string) {
   const time = normalizeReceiptTime(data.time)
   const card_last4 = normalizeCardLast4(data.card_last4)
   let confidence = Number.isFinite(data.confidence) ? data.confidence : 0
-  if (data.total_amount_paid == null) confidence = Math.min(confidence, 0.69)
+  if (!date || data.total_amount_paid == null) confidence = Math.min(confidence, 0.69)
   const codes = data.suggested_categories.slice(0, 3)
   if (codes.some((item) => item.code === 59)) confidence = Math.min(confidence, 0.59)
   const description = simpleDescription(data.description)
@@ -133,35 +133,33 @@ export function categoryPromptList(
 export function extractionSystemPrompt(categoryList: string) {
   return `You extract data from construction receipt and invoice images.
 Return ONLY JSON. No markdown, no code fences, no commentary.
-total_amount_paid is the only required field. Use the FINAL amount actually paid (after tax and discounts), not the subtotal, whenever that total is visible.
-If no total is visible, set total_amount_paid to null. Do not guess a number.
+Use the FINAL amount actually paid (after tax and discounts), not the subtotal, for total_amount_paid.
 Returns, refunds, and credits are negative. An amount in parentheses is negative: (12.50) and ($12.50) mean -12.50. A leading minus is negative. Keep the sign. Do not return the absolute value of a return.
-vendor, date, time, receipt_number, payment_method, card_last4, description, and category are optional. Return null when one of them is not clearly printed. Do not invent a value. A missing date, vendor, description, or category must not stop you from returning total_amount_paid.
-Pick up to 3 category codes ONLY from the list below, and only when the receipt clearly matches. If the category is not clear, return an empty suggested_categories array. Do not guess a category.
-Set confidence below 0.7 when the amount is missing or unclear. Do not lower confidence only because the date or another optional field is missing when the amount was read.
+Pick up to 3 category codes ONLY from the list below.
+Set confidence below 0.7 when the amount or date is unclear.
 Dates must be YYYY-MM-DD or null.
 time is the transaction time printed on the receipt, 24-hour HH:MM, or null when no time is printed.
 card_last4 is only the last 4 digits of the card. Never return a full card number. Use null when no card is printed.
-payment_method is the payment type or card brand, not the card number. Use null when it is not printed.
-description is one short phrase of what was bought, a few words only (8 words maximum), or null when the items are not clear. Examples: "Lumber and screws", "Paint", "Dumpster rental", "Fuel". Do not list every line item, SKU, quantity, or price. Do not write a sentence or paragraph. line_items may still list individual lines; never copy that full list into description. subtotal, tax, and notes may be null. Do not invent them.
+payment_method is the payment type or card brand, not the card number.
+description is one short phrase of what was bought, a few words only (8 words maximum). Examples: "Lumber and screws", "Paint", "Dumpster rental", "Fuel". Do not list every line item, SKU, quantity, or price. Do not write a sentence or paragraph. line_items may still list individual lines; never copy that full list into description.
 
 JSON shape:
 {
-  "vendor": "string or null",
-  "date": "YYYY-MM-DD or null",
-  "description": "a few words or null",
+  "vendor": "string",
+  "date": "YYYY-MM-DD",
+  "description": "a few words, such as Lumber and screws",
   "total_amount_paid": 0.00,
-  "subtotal": null,
-  "tax": null,
+  "subtotal": 0.00,
+  "tax": 0.00,
   "receipt_number": "string or null",
   "time": "HH:MM or null",
-  "payment_method": "cash, check, visa, mastercard, amex, discover, debit, other, or null",
+  "payment_method": "cash, check, visa, mastercard, amex, discover, debit, or other",
   "card_last4": "last 4 digits or null",
   "line_items": [{"description": "string", "amount": 0.00, "category_code": 0}],
   "suggested_categories": [{"code": 0, "reason": "string"}],
   "split_suggested": false,
   "confidence": 0.0,
-  "notes": "anything unclear, such as handwritten, faded, or multiple totals, or null"
+  "notes": "anything unclear, e.g. handwritten, faded, multiple totals"
 }
 
 ${CATEGORY_RULES}
@@ -169,19 +167,3 @@ ${CATEGORY_RULES}
 Categories:
 ${categoryList}`
 }
-
-/** User-turn instructions for a receipt read. Only the paid total is required. */
-export function extractionUserInstruction(pageNote: string, categoryChosen: boolean) {
-  const category = categoryChosen ? "The category is already chosen by the user." : ""
-  const fields =
-    "total_amount_paid is the only required field. Return it whenever the final amount paid is visible. vendor, date, time, receipt_number, payment_method, card_last4, description, and category may be null when they are not clearly on the receipt. Do not invent those values. A missing date, vendor, or description must not omit total_amount_paid."
-  const descriptionAsk =
-    "description is one short phrase of what was bought, a few words such as Lumber and screws, Paint, Dumpster rental, or Fuel, or null when that is not clear. Do not list every line item. Do not invent a description."
-  const returns =
-    "If this is a return or refund, total_amount_paid is negative. Parentheses around an amount, such as (12.50) or ($12.50), mean a negative amount. A leading minus stays negative."
-  return [pageNote, category, fields, descriptionAsk, returns].filter(Boolean).join(" ")
-}
-
-export const RECEIPT_AMOUNT_PROMPT = `Read this black-and-white receipt. Return ONLY JSON: {"vendor":null,"date":null,"time":null,"total_amount_paid":null,"description":null,"receipt_number":null,"payment_method":null,"card_last4":null}. total_amount_paid is the only required field. It is the final amount paid (Total, Amount Due, or Balance Due) whenever that total is visible. A return, refund, or credit is negative. An amount in parentheses, such as (12.50) or ($12.50), is negative: -12.50. Keep the minus sign. Use null for total_amount_paid only when no total is visible. Do not guess a number. vendor, date, time, receipt_number, payment_method, card_last4, and description are null when they are not clearly printed. Do not invent them. A missing date, vendor, or description must not omit the amount. description, when present, is one short phrase of what was bought, a few words, not a list of line items. card_last4 is only the last 4 digits.`
-
-export const ORIGINAL_AMOUNT_PROMPT = `Read this receipt photo. Return ONLY JSON: {"vendor":null,"date":null,"time":null,"total_amount_paid":null,"description":null,"receipt_number":null,"payment_method":null,"card_last4":null}. total_amount_paid is the only required field. It is the final amount paid printed on the receipt (Total, Amount Due, or Balance Due), not the subtotal, whenever that total is visible. A return, refund, or credit is negative. An amount in parentheses, such as (12.50) or ($12.50), is negative: -12.50. Keep the minus sign. Use null for total_amount_paid only when no total is visible. Do not guess a number. vendor, date, time, receipt_number, payment_method, card_last4, and description are null when they are not clearly printed. Do not invent them. A missing date, vendor, or description must not omit the amount.`

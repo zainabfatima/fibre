@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 
 import { buildReceiptPdf } from "@/lib/category-packet"
 import { requireAdminApi } from "@/lib/db"
-import { buildImagePrintHtml } from "@/lib/print-crop"
 
 export const maxDuration = 60
 
@@ -35,7 +34,29 @@ export async function GET(
   const filename = `${slug(expense.vendor?.trim() || "Receipt")}${date ? `_${date}` : ""}.pdf`
 
   if (printing && !isPdfFile(expense.receipt_file_path, expense.file_type)) {
-    return new NextResponse(buildImagePrintHtml(`/r/${expense.id}`), {
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${filename}</title>
+<style>
+  @page { margin: 0.4in; }
+  html, body { margin: 0; background: white; }
+  img { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<img src="/r/${expense.id}" alt="Receipt">
+<script>
+  const img = document.images[0]
+  function printReceipt() { window.focus(); window.print() }
+  if (img.complete && img.naturalWidth) printReceipt()
+  else img.addEventListener("load", printReceipt)
+</script>
+</body>
+</html>`
+    return new NextResponse(html, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",

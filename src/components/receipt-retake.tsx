@@ -41,7 +41,6 @@ export function ReceiptRetake({
     body.set("pageCount", String(result.pageCount))
     body.set("cropMethod", result.cropMethod)
     body.set("needsManualCrop", result.needsManualCrop ? "true" : "false")
-    body.set("scanVerified", result.scanVerified ? "true" : "false")
     body.set("cropCorners", JSON.stringify(result.pages.map((page) => page.cropCorners)))
     body.set(
       "file",
