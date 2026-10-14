@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 
 import { decodeReceiptFile, fullFrameCorners, loadOpenCv, rasterToJpegBlob, renderCrop } from "@/lib/receiptCrop"
 import {
@@ -54,7 +55,18 @@ export function CameraCapture({
   const [torch, setTorch] = useState(false)
   const [ready, setReady] = useState(false)
   const [capturing, setCapturing] = useState(false)
+  const [needsTap, setNeedsTap] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [status, setStatus] = useState("Opening the camera")
+  const statusRef = useRef("Opening the camera")
+  const showStatusRef = useRef<(message: string) => void>(() => {})
+
+  function showStatus(message: string) {
+    if (statusRef.current === message) return
+    statusRef.current = message
+    setStatus(message)
+  }
+  showStatusRef.current = showStatus
 
   function stopCamera() {
     const video = videoRef.current
@@ -79,7 +91,7 @@ export function CameraCapture({
     if (cv) cvRef.current = cv
     cvStateRef.current = cv ? "ready" : "failed"
     if (!cameraReadyRef.current || busyRef.current || deliveredRef.current) return
-    setStatus(cv ? "Looking for the receipt" : "Tap Capture now.")
+    showStatusRef.current(cv ? "Looking for the receipt" : "Tap Capture now.")
   }
 
   async function scannerWhenReady(waitMs: number) {
@@ -95,6 +107,16 @@ export function CameraCapture({
   }
 
   useEffect(() => {
+    setMounted(true)
+    const previous = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
     const video = videoRef.current
     if (!video) return
     if (!window.isSecureContext) {
@@ -133,14 +155,21 @@ export function CameraCapture({
           return
         }
         player.srcObject = stream
-        await playCamera(player)
+        const playback = await playCamera(player)
         if (cancelled) {
           stopCamera()
           return
         }
         cameraReadyRef.current = true
         setReady(true)
-        if (!busyRef.current && !deliveredRef.current) setStatus(previewStatus())
+        if (playback === "paused") {
+          setNeedsTap(true)
+          if (!busyRef.current && !deliveredRef.current) {
+            showStatusRef.current("Tap Start camera, then take the photo.")
+          }
+        } else if (!busyRef.current && !deliveredRef.current) {
+          showStatusRef.current(previewStatus())
+        }
         // Edge detection starts after the live preview is showing. Missing cv is not a camera error.
         void loadScanner().then((cv) => {
           if (!cancelled) onScannerReady(cv)
@@ -160,22 +189,24 @@ export function CameraCapture({
       cancelled = true
       stopCamera()
     }
-  }, [])
+  }, [mounted])
 
   useEffect(() => {
     if (!ready) return
     let stopped = false
     let timer = 0
-    const tick = () => {
+    const schedule = (wait: number) => {
       if (stopped) return
-      timer = window.setTimeout(() => void run(), DETECT_INTERVAL_MS)
+      timer = window.setTimeout(() => void run(), wait)
     }
     async function run() {
       if (stopped) return
-      tick()
       const cv = cvRef.current
       const video = videoRef.current
-      if (!cv || !video || busyRef.current || deliveredRef.current || video.videoWidth < 2) return
+      if (!cv || !video || busyRef.current || deliveredRef.current || video.videoWidth < 2) {
+        schedule(DETECT_INTERVAL_MS)
+        return
+      }
       const longSide = Math.max(video.videoWidth, video.videoHeight)
       const scale = Math.min(1, DETECT_LONG_SIDE / longSide)
       const sample = sampleRef.current ?? document.createElement("canvas")
@@ -183,8 +214,12 @@ export function CameraCapture({
       sample.width = Math.max(1, Math.round(video.videoWidth * scale))
       sample.height = Math.max(1, Math.round(video.videoHeight * scale))
       const context = sample.getContext("2d", { willReadFrequently: true })
-      if (!context) return
+      if (!context) {
+        schedule(DETECT_INTERVAL_MS)
+        return
+      }
       context.drawImage(video, 0, 0, sample.width, sample.height)
+      const started = performance.now()
       try {
         const mat = cv.imread(sample)
         try {
@@ -193,19 +228,19 @@ export function CameraCapture({
             stableRef.current = 0
             lastQuadRef.current = null
             drawQuad(null)
-            setStatus("Looking for the receipt")
-            return
-          }
-          const corners = found.corners.map((point) => ({ x: point.x / scale, y: point.y / scale }))
-          drawQuad(corners)
-          const previous = lastQuadRef.current
-          if (previous && quadIsStable(quadShift(previous, corners, video.videoWidth))) stableRef.current += 1
-          else stableRef.current = 1
-          lastQuadRef.current = corners
-          setStatus(stableRef.current >= STABLE_FRAMES ? "Capturing" : "Hold steady")
-          if (stableRef.current >= STABLE_FRAMES) {
-            stableRef.current = 0
-            void captureRef.current(false)
+            showStatusRef.current("Looking for the receipt")
+          } else {
+            const corners = found.corners.map((point) => ({ x: point.x / scale, y: point.y / scale }))
+            drawQuad(corners)
+            const previous = lastQuadRef.current
+            if (previous && quadIsStable(quadShift(previous, corners, video.videoWidth))) stableRef.current += 1
+            else stableRef.current = 1
+            lastQuadRef.current = corners
+            showStatusRef.current(stableRef.current >= STABLE_FRAMES ? "Capturing" : "Hold steady")
+            if (stableRef.current >= STABLE_FRAMES) {
+              stableRef.current = 0
+              void captureRef.current(false)
+            }
           }
         } finally {
           mat.delete()
@@ -213,8 +248,10 @@ export function CameraCapture({
       } catch {
         // One bad frame must not close the camera.
       }
+      const elapsed = performance.now() - started
+      schedule(elapsed > 200 ? 400 : DETECT_INTERVAL_MS)
     }
-    tick()
+    schedule(DETECT_INTERVAL_MS)
     return () => {
       stopped = true
       window.clearTimeout(timer)
@@ -229,8 +266,12 @@ export function CameraCapture({
     const height = video.clientHeight
     if (width < 2 || height < 2) return
     const ratio = window.devicePixelRatio || 1
-    overlay.width = Math.round(width * ratio)
-    overlay.height = Math.round(height * ratio)
+    const nextWidth = Math.round(width * ratio)
+    const nextHeight = Math.round(height * ratio)
+    if (overlay.width !== nextWidth || overlay.height !== nextHeight) {
+      overlay.width = nextWidth
+      overlay.height = nextHeight
+    }
     const context = overlay.getContext("2d")
     if (!context) return
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
@@ -251,11 +292,17 @@ export function CameraCapture({
   async function capture(manual: boolean) {
     if (busyRef.current || deliveredRef.current) return
     const video = videoRef.current
-    if (!video || video.videoWidth < 2) return
+    if (!video || video.videoWidth < 2) {
+      if (manual) {
+        setNeedsTap(true)
+        showStatus("Tap Start camera, then take the photo.")
+      }
+      return
+    }
     if (!manual && !cvRef.current) return
     busyRef.current = true
     setCapturing(true)
-    setStatus(manual ? "Capturing" : "Cropping the receipt")
+    showStatus(manual ? "Capturing" : "Cropping the receipt")
     try {
       const frame = document.createElement("canvas")
       frame.width = video.videoWidth
@@ -266,7 +313,7 @@ export function CameraCapture({
       const original = await canvasToJpeg(frame, 0.85)
       let cv = cvRef.current
       if (!cv && manual && cvStateRef.current !== "failed") {
-        setStatus("Finishing the scanner")
+        showStatus("Finishing the scanner")
         cv = await scannerWhenReady(SCANNER_WAIT_MS)
       }
       const deliver = (blob: Blob, photo: Blob, verified: boolean) => {
@@ -289,7 +336,7 @@ export function CameraCapture({
             deliver(best.scan.blob, best.original, false)
             return
           }
-          setStatus(`Still seeing the table. Trying again (${attemptsRef.current} of ${AUTO_TRIES}).`)
+          showStatus(`Still seeing the table. Trying again (${attemptsRef.current} of ${AUTO_TRIES}).`)
           stableRef.current = 0
           return
         } catch {
@@ -316,7 +363,7 @@ export function CameraCapture({
       await track.applyConstraints({ advanced: [{ torch: next }] } as unknown as MediaTrackConstraints)
       setTorch(next)
     } catch {
-      setStatus("The flash is not available on this phone.")
+      showStatus("The flash is not available on this phone.")
     }
   }
 
@@ -324,7 +371,7 @@ export function CameraCapture({
     if (busyRef.current || deliveredRef.current) return
     busyRef.current = true
     setCapturing(true)
-    setStatus("Finding the receipt")
+    showStatus("Finding the receipt")
     try {
       const canvas = await fileToCanvas(file)
       const cv = cvRef.current ?? (await scannerWhenReady(SCANNER_WAIT_MS))
@@ -351,20 +398,37 @@ export function CameraCapture({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-40 bg-black text-white">
+  async function startPreview() {
+    const video = videoRef.current
+    if (!video) return
+    try {
+      await video.play()
+      setNeedsTap(false)
+      if (video.videoWidth >= 2) {
+        cameraReadyRef.current = true
+        setReady(true)
+        showStatus("Tap Capture now.")
+      }
+    } catch {
+      showStatus("The camera did not start. Choose a photo instead.")
+    }
+  }
+
+  const screen = (
+    <div className="fixed inset-0 z-[80] bg-black text-white" style={{ transform: "translateZ(0)" }}>
       {error ? (
-        <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+        <div className="relative z-10 flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
           <p>{error}</p>
-          <label className="inline-flex min-h-11 items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
+          <label className="relative inline-flex min-h-11 cursor-pointer items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">
             Choose a photo
             <input
               type="file"
               accept="image/*"
               capture="environment"
-              className="hidden"
+              className="absolute inset-0 cursor-pointer opacity-0"
               onChange={(event) => {
                 const file = event.target.files?.[0]
+                event.target.value = ""
                 if (file) void useChosenPhoto(file)
               }}
             />
@@ -381,48 +445,62 @@ export function CameraCapture({
             muted
             autoPlay
             controls={false}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover"
           />
-          <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 h-full w-full" />
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-            <div className="pointer-events-auto flex items-center justify-between">
-              <button type="button" onClick={onClose} className="min-h-11 rounded-lg bg-black/50 px-3 text-sm">
-                Close
-              </button>
-              <span className="rounded-full bg-black/50 px-3 py-1 text-sm">Page {pageNumber}</span>
-              <button type="button" onClick={() => void toggleTorch()} className="min-h-11 rounded-lg bg-black/50 px-3 text-sm">
-                {torch ? "Flash on" : "Flash"}
-              </button>
+          <canvas ref={overlayRef} className="pointer-events-none absolute inset-0 z-[1] h-full w-full" />
+          <div className="absolute inset-0 z-10 flex flex-col justify-between" style={{ transform: "translateZ(0)" }}>
+            <div className="p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+              <div className="flex items-center justify-between gap-2">
+                <button type="button" onClick={onClose} className="min-h-11 touch-manipulation rounded-lg bg-black/70 px-3 text-sm">
+                  Close
+                </button>
+                <span className="rounded-full bg-black/70 px-3 py-1 text-sm">Page {pageNumber}</span>
+                <button type="button" onClick={() => void toggleTorch()} className="min-h-11 touch-manipulation rounded-lg bg-black/70 px-3 text-sm">
+                  {torch ? "Flash on" : "Flash"}
+                </button>
+              </div>
+              <p className="mx-auto mt-3 max-w-sm rounded-lg bg-black/70 px-3 py-2 text-center text-sm">{status}</p>
             </div>
-            <p className="mx-auto mt-3 max-w-sm rounded-lg bg-black/50 px-3 py-2 text-center text-sm">{status}</p>
-          </div>
-          <div className="absolute inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-3">
-            <button
-              type="button"
-              disabled={!ready || capturing}
-              onClick={() => void capture(true)}
-              className="min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              Capture now
-            </button>
-            <label className="inline-flex min-h-11 cursor-pointer items-center rounded-lg bg-white/15 px-4 text-sm">
-              Choose a photo
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ""
-                  if (file) void useChosenPhoto(file)
-                }}
-              />
-            </label>
+            <div className="flex flex-col items-center gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+              {needsTap ? (
+                <button
+                  type="button"
+                  onClick={() => void startPreview()}
+                  className="min-h-14 w-full max-w-xs touch-manipulation rounded-lg bg-white px-4 text-sm font-medium text-black"
+                >
+                  Start camera
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={capturing}
+                onClick={() => void capture(true)}
+                className="min-h-14 w-full max-w-xs touch-manipulation rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {capturing ? "Capturing…" : "Capture now"}
+              </button>
+              <label className="relative inline-flex min-h-11 cursor-pointer touch-manipulation items-center rounded-lg bg-white/15 px-4 text-sm">
+                Choose a photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    event.target.value = ""
+                    if (file) void useChosenPhoto(file)
+                  }}
+                />
+              </label>
+            </div>
           </div>
         </>
       )}
     </div>
   )
+
+  if (!mounted) return null
+  return createPortal(screen, document.body)
 }
 
 function sourceToView(point: ScanPoint, video: HTMLVideoElement) {
@@ -454,7 +532,7 @@ async function fileToCanvas(file: Blob) {
   return canvas
 }
 
-async function playCamera(video: HTMLVideoElement) {
+async function playCamera(video: HTMLVideoElement): Promise<"playing" | "paused"> {
   video.muted = true
   video.defaultMuted = true
   video.autoplay = true
@@ -465,7 +543,7 @@ async function playCamera(video: HTMLVideoElement) {
   video.setAttribute("playsinline", "true")
   video.setAttribute("webkit-playsinline", "true")
   const waited = new Promise<void>((resolve, reject) => {
-    if (video.readyState >= 1 && video.videoWidth > 0) {
+    if (video.readyState >= 1 && video.videoWidth >= 2) {
       resolve()
       return
     }
@@ -478,7 +556,7 @@ async function playCamera(video: HTMLVideoElement) {
       video.removeEventListener("error", onError)
     }
     const onReady = () => {
-      if (video.videoWidth < 1 && video.readyState < 2) return
+      if (video.videoWidth < 2) return
       finish()
       resolve()
     }
@@ -488,7 +566,7 @@ async function playCamera(video: HTMLVideoElement) {
     }
     timer = window.setTimeout(() => {
       finish()
-      if (video.videoWidth > 0 || video.readyState >= 2) resolve()
+      if (video.videoWidth >= 2) resolve()
       else reject(new Error("The camera is not available. Choose a photo instead."))
     }, 8000)
     video.addEventListener("loadedmetadata", onReady)
@@ -496,12 +574,15 @@ async function playCamera(video: HTMLVideoElement) {
     video.addEventListener("playing", onReady)
     video.addEventListener("error", onError)
   })
+  let playFailed = false
   try {
     await video.play()
   } catch {
-    // Safari can start playback from the muted autoPlay attribute instead of play().
+    playFailed = true
   }
   await waited
+  if (playFailed && video.paused) return "paused"
+  return "playing"
 }
 
 async function openRearCamera() {
