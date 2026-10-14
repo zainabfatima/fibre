@@ -61,7 +61,12 @@ export function UploadQueue({
     try {
       const raw = sessionStorage.getItem(storageKey)
       if (raw) {
-        const parsed = JSON.parse(raw) as { manual?: unknown; categoryId?: unknown }
+        const parsed = JSON.parse(raw) as {
+          manual?: unknown
+          categoryId?: unknown
+          reimburse?: unknown
+          reimburseName?: unknown
+        }
         if (typeof parsed.manual === "boolean") setManual(parsed.manual)
         if (
           typeof parsed.categoryId === "string" &&
@@ -69,6 +74,8 @@ export function UploadQueue({
         ) {
           setCategoryId(parsed.categoryId)
         }
+        if (typeof parsed.reimburse === "boolean") setReimburse(parsed.reimburse)
+        if (typeof parsed.reimburseName === "string") setReimburseName(parsed.reimburseName.slice(0, 80))
       }
     } catch {
       // Keep the default: manual category on, nothing selected yet.
@@ -78,8 +85,8 @@ export function UploadQueue({
 
   useEffect(() => {
     if (!hydrated) return
-    sessionStorage.setItem(storageKey, JSON.stringify({ manual, categoryId }))
-  }, [hydrated, manual, categoryId, storageKey])
+    sessionStorage.setItem(storageKey, JSON.stringify({ manual, categoryId, reimburse, reimburseName }))
+  }, [hydrated, manual, categoryId, reimburse, reimburseName, storageKey])
 
   function update(id: string, patch: Partial<Item>) {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
@@ -243,7 +250,7 @@ export function UploadQueue({
             className="size-5 shrink-0"
           />
           Reimbursement
-          <span className="text-sm text-muted-foreground">Optional</span>
+          <span className="text-sm text-muted-foreground">Stays on for the next receipts</span>
         </label>
         {reimburse ? (
           <label className="grid gap-1 text-base">
@@ -256,7 +263,7 @@ export function UploadQueue({
               className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base"
             />
             <span className="text-sm text-muted-foreground">
-              Optional. If you add a name, it shows in the Reimbursement column.
+              This name stays filled in for the next receipts.
             </span>
           </label>
         ) : null}
