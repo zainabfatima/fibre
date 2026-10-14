@@ -164,6 +164,7 @@ export function CameraCapture({
   }
 
   function pointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault()
     if (capturing) return
     const { x, y, rect } = pointerPoint(event)
     const px = x * rect.width
@@ -227,7 +228,7 @@ export function CameraCapture({
         <>
           <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
           <div
-            className="absolute inset-0 z-10 touch-none"
+            className="absolute inset-0 z-10"
             onPointerDown={pointerDown}
             onPointerMove={pointerMove}
             onPointerUp={pointerUp}
