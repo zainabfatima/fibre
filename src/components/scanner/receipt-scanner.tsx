@@ -44,6 +44,8 @@ type Draft = {
   /** JPEG from processReceipt. Uploaded as-is so a second clean pass cannot bring the table back. */
   finishedBlob?: Blob | null
   scanVerified?: boolean
+  /** Corners and choice already rendered into `processed`. Done must not crop the photo again. */
+  paintedKey?: string
 }
 
 const emptyChecks: PageChecks = { blurry: false, tooSmall: false, glare: false, dark: false, joins: false }
@@ -59,14 +61,21 @@ function pageMethod(page: Draft): CropMethod {
   return page.autoMethod
 }
 
+function paintKey(page: Pick<Draft, "choice" | "corners" | "source">) {
+  const corners = page.choice === "original" ? fullFrameCorners(page.source.width, page.source.height) : page.corners
+  return `${page.choice}:${corners.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`).join(";")}`
+}
+
 function paintPage(page: Draft): Draft {
   if (page.finishedBlob && page.choice !== "manual") return page
+  const key = paintKey(page)
+  if (page.processed && page.previewUrl && page.paintedKey === key) return page
   const method = pageMethod(page)
   const corners = page.choice === "original" ? fullFrameCorners(page.source.width, page.source.height) : page.corners
   const rendered = renderCrop(page.source, corners, method, page.confidence)
   const keptOriginal = rendered.method === "none"
   const frame = fullFrameCorners(page.source.width, page.source.height)
-  return {
+  const next: Draft = {
     ...page,
     choice: keptOriginal ? "original" : page.choice,
     corners: keptOriginal ? frame : rendered.corners,
@@ -74,6 +83,8 @@ function paintPage(page: Draft): Draft {
     checks: checksFor(asImageData(rendered.image), rendered.image.width),
     previewUrl: rasterToDataUrl(rendered.image),
   }
+  next.paintedKey = paintKey(next)
+  return next
 }
 
 function combinedMethod(methods: CropMethod[]): CropMethod {
@@ -277,22 +288,24 @@ export function ReceiptScanner({
   )
 
   async function buildResult(group: Draft[], type: CaptureType): Promise<ScanResult> {
-    const painted = group.map((page) => (page.processed ? page : paintPage(page)))
-    const images = painted.map((page) => page.processed).filter((image): image is Raster => Boolean(image))
+    const painted = group.map((page) => paintPage(page))
+    const images = painted.map((page) => page.processed)
+    if (images.some((image) => !image)) throw new Error("The scan could not be saved")
+    const ready = images as Raster[]
     const multi = type !== "single" && painted.length > 1
     const keepFinished = painted.length > 0 && painted.every((page) => page.finishedBlob && page.choice !== "manual")
-    const fallback = images[0]
+    const fallback = ready[0]
     if (!keepFinished && !fallback) throw new Error("The scan could not be saved")
     const fileBlob = keepFinished
       ? painted.length === 1
         ? (painted[0].finishedBlob as Blob)
         : await imagesToPdf(painted.map((page) => page.finishedBlob as Blob))
       : multi
-        ? await imagesToPdf(await Promise.all(images.map((image) => rasterToJpegBlob(image, 0.85))))
-        : await rasterToJpegBlob(fallback as Raster, 0.85)
+        ? await imagesToPdf(await Promise.all(ready.map((image) => rasterToJpegBlob(image, 0.85))))
+        : await rasterToJpegBlob(fallback, 0.85)
     if (!fileBlob) throw new Error("The scan could not be saved")
     if (fileBlob.size > 15 * 1024 * 1024) setNote("This scan is over 15 MB.")
-    const thumbSource = images[0]
+    const thumbSource = ready[0]
     if (!thumbSource) throw new Error("The scan could not be saved")
     const thumbCanvas = document.createElement("canvas")
     thumbCanvas.width = 400
@@ -318,8 +331,8 @@ export function ReceiptScanner({
       cropMethod: combinedMethod(methods),
       needsManualCrop: methods.some((method) => method === "none"),
       pages: painted.map((page, index) => ({
-        width: images[index].width,
-        height: images[index].height,
+        width: ready[index].width,
+        height: ready[index].height,
         cropCorners: page.corners,
         filter: "bw" as const,
         checks: page.checks,
@@ -332,6 +345,7 @@ export function ReceiptScanner({
   async function confirm(chosen?: CaptureType, direct = false) {
     if (pages.length === 0) return
     setBusy(true)
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
     try {
       const group = pages.map((page) => paintPage(editing && page.id === editing.id ? editing : page))
       setPages(group)
