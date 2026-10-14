@@ -46,6 +46,7 @@ export function ReceiptCropper({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sourceRef = useRef<HTMLCanvasElement | null>(null)
   const dragRef = useRef<number | null>(null)
+  const acted = useRef(0)
   const [drag, setDrag] = useState<number | null>(null)
   const displayWidth = Math.max(1, Math.min(image.width, 1000))
   const displayHeight = Math.max(1, Math.round(image.height * (displayWidth / image.width)))
@@ -148,18 +149,28 @@ export function ReceiptCropper({
     }
   }
 
+  function tap(action?: () => void) {
+    return () => {
+      if (unavailable || !action) return
+      const now = Date.now()
+      if (now - acted.current < 400) return
+      acted.current = now
+      action()
+    }
+  }
+
   const screen = (
-    <div className="fixed inset-0 z-[90] flex h-dvh max-w-[100vw] flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+    <div className="fixed inset-0 z-[80] grid grid-rows-[auto_minmax(0,1fr)_auto] bg-background">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
         <div>
           <h2 className="font-medium">Crop receipt</h2>
           {pageLabel ? <p className="text-sm text-muted-foreground">{pageLabel}</p> : null}
         </div>
-        <button type="button" onClick={onCancel} className="min-h-11 px-3 text-sm underline">
+        <button type="button" className="min-h-11 px-3 text-sm underline" onPointerUp={tap(onCancel)} onClick={tap(onCancel)}>
           Cancel
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+      <div className="min-h-0 overflow-y-auto px-3 py-3">
         {needsManualCrop ? (
           <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" role="status">
             The paper edges were not clear. Drag the four corners onto the receipt, or use the original photo.
@@ -181,32 +192,33 @@ export function ReceiptCropper({
         />
         {note ? <p className="mt-3 text-sm text-red-700">{note}</p> : null}
       </div>
-      <div className="relative z-10 grid shrink-0 touch-manipulation gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="grid touch-manipulation gap-2 border-t border-border bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           disabled={unavailable}
           className="min-h-11 w-full rounded-lg bg-primary text-sm font-medium text-primary-foreground disabled:opacity-60"
-          onClick={onUseCrop}
+          onPointerUp={tap(onUseCrop)}
+          onClick={tap(onUseCrop)}
         >
           {busy && busyLabel ? busyLabel : "Use crop"}
         </button>
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onResetAuto}>
+          <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onPointerUp={tap(onResetAuto)} onClick={tap(onResetAuto)}>
             Reset to auto
           </button>
-          <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onClick={onUseOriginal}>
+          <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input px-3 text-sm disabled:opacity-60" onPointerUp={tap(onUseOriginal)} onClick={tap(onUseOriginal)}>
             Use original
           </button>
         </div>
         {onRotate || onSave ? (
           <div className={onRotate && onSave ? "grid grid-cols-2 gap-2" : "grid"}>
             {onRotate ? (
-              <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onRotate}>
+              <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onPointerUp={tap(onRotate)} onClick={tap(onRotate)}>
                 Rotate
               </button>
             ) : null}
             {onSave ? (
-              <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onClick={onSave}>
+              <button type="button" disabled={unavailable} className="min-h-11 rounded-lg border border-input text-sm disabled:opacity-60" onPointerUp={tap(onSave)} onClick={tap(onSave)}>
                 {saveLabel ?? "Save"}
               </button>
             ) : null}
@@ -217,7 +229,8 @@ export function ReceiptCropper({
             type="button"
             disabled={unavailable}
             className="min-h-11 w-full rounded-lg border border-input text-sm font-medium disabled:opacity-60"
-            onClick={onDone}
+            onPointerUp={tap(onDone)}
+            onClick={tap(onDone)}
           >
             {busy ? "Saving…" : "Done"}
           </button>

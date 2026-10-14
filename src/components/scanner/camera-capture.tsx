@@ -41,12 +41,20 @@ export function CameraCapture({
 
   function stopCamera() {
     const video = videoRef.current
-    if (video) {
-      video.pause()
-      video.srcObject = null
-    }
-    streamRef.current?.getTracks().forEach((track) => track.stop())
+    const stream = (video?.srcObject as MediaStream | null) ?? streamRef.current
+    stream?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
+    if (!video) return
+    video.pause()
+    video.srcObject = null
+    video.removeAttribute("src")
+    try {
+      video.load()
+    } catch {
+      // The element can already be gone when the camera closes.
+    }
+    video.style.display = "none"
+    video.style.pointerEvents = "none"
   }
 
   useEffect(() => {
@@ -120,6 +128,9 @@ export function CameraCapture({
       const framed = cornersAreUsable(ordered)
       const blob = await rasterToJpegBlob(cropped, 0.92)
       stopCamera()
+      // Let the shutter gesture finish before the crop screen opens. Closing the
+      // live video in the same tap makes iPhone Safari drop every later tap.
+      await new Promise((resolve) => window.setTimeout(resolve, 60))
       onCapture(blob, framed)
     } catch (cause) {
       stopCamera()

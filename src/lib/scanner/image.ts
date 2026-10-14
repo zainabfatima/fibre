@@ -287,6 +287,7 @@ export function checksFor(image: ImageData, sourceWidth: number): PageChecks {
       if (value > 248) white += 1
     }
   }
+  const whiteRatio = white / Math.max(count, 1)
   mean /= Math.max(count, 1)
   let variance = 0
   let lapCount = 0
@@ -306,7 +307,8 @@ export function checksFor(image: ImageData, sourceWidth: number): PageChecks {
   return {
     blurry: variance < 80,
     tooSmall: sourceWidth < 900,
-    glare: white / Math.max(count, 1) > 0.05,
+    // A cleaned scan is mostly paper white. Only a smaller blown-out patch is glare.
+    glare: whiteRatio > 0.05 && whiteRatio < 0.45,
     dark: mean < 70,
     joins: false,
   }

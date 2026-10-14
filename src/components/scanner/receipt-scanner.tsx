@@ -133,13 +133,13 @@ export function ReceiptScanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {
-    if (!editingId && !previewSrc) return
+    if (!previewSrc) return
     const previous = document.body.style.overflow
     document.body.style.overflow = "hidden"
     return () => {
       document.body.style.overflow = previous
     }
-  }, [editingId, previewSrc])
+  }, [previewSrc])
   async function addFinished(finished: Blob, original: Blob, verified: boolean) {
     const hash = await sha256(original)
     const source = await decodeReceiptFile(finished)
@@ -379,7 +379,7 @@ export function ReceiptScanner({
     return results
   }
 
-  const warning = (editing ? checkLabels(editing.checks)[0] : null) || note
+  const warning = note || (editing ? checkLabels({ ...editing.checks, glare: false })[0] : null) || null
 
   return (
     <div className="grid gap-4">
