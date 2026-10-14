@@ -5,7 +5,6 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import { saveScannedReceipt } from "@/app/actions/expenses"
-import { ReceiptPhotoButton } from "@/components/scanner/camera-capture"
 import { ReceiptScanner } from "@/components/scanner/receipt-scanner"
 import { formatCategory } from "@/lib/format"
 import type { ScanResult } from "@/lib/scanner/types"
@@ -311,20 +310,13 @@ export function UploadQueue({
                 }}
               />
             </label>
-            <span
-              className="inline-flex"
-              onClick={() => {
-                if (manual && !chosenCategoryId()) setCategoryError("Pick a category before uploading receipts.")
-              }}
+            <button
+              type="button"
+              className="min-h-11 rounded-lg border border-border px-3 py-2 text-sm"
+              onClick={() => startScan([], true)}
             >
-              <ReceiptPhotoButton
-                label="Camera"
-                disabled={manual && !chosenCategoryId()}
-                onPhoto={(file) => startScan([file], true)}
-                onVideo={() => setCategoryError("Take a photo of the receipt. Video is not used.")}
-                className="inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-border px-3 py-2 text-sm"
-              />
-            </span>
+              Camera
+            </button>
           </div>
         </div>
       )}

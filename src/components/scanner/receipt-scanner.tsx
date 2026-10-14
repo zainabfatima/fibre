@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { ReceiptCropper } from "@/components/ReceiptCropper"
-import { CameraCapture, ReceiptPhotoButton } from "@/components/scanner/camera-capture"
+import { CameraCapture } from "@/components/scanner/camera-capture"
 import { PageManager, type ManagedPage } from "@/components/scanner/page-manager"
 import { ScanPreview } from "@/components/scanner/scan-preview"
 import {
@@ -382,14 +382,7 @@ export function ReceiptScanner({
       {camera ? (
         <CameraCapture
           pageNumber={pages.length + 1}
-          onCapture={(scan) => {
-            setStatus("Saving the scan")
-            void addFinished(scan.blob, scan.original, scan.verified)
-              .catch((cause: unknown) => {
-                setNote(cause instanceof Error ? cause.message : "This photo could not be opened")
-              })
-              .finally(() => setStatus(null))
-          }}
+          onCapture={(blob, framed) => void addBlob(blob, blob, framed)}
           onClose={() => setCamera(false)}
         />
       ) : null}
@@ -466,12 +459,9 @@ export function ReceiptScanner({
       {!editing && !camera ? (
         <div className="grid gap-2">
           <div className="grid grid-cols-2 gap-2">
-            <ReceiptPhotoButton
-              label="Camera"
-              onPhoto={(file) => void addScannedFile(file)}
-              onVideo={() => setNote("Take a photo of the receipt. Video is not used.")}
-              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input text-sm"
-            />
+            <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => setCamera(true)}>
+              Camera
+            </button>
             <label className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-input text-sm">
               Upload
               <input
@@ -498,24 +488,12 @@ export function ReceiptScanner({
                 {busy ? "Saving…" : "Done"}
               </button>
               <div className="grid grid-cols-2 gap-2">
-                <ReceiptPhotoButton
-                  label="Add section"
-                  onPhoto={(file) => {
-                    setCaptureType("long")
-                    void addScannedFile(file)
-                  }}
-                  onVideo={() => setNote("Take a photo of the receipt. Video is not used.")}
-                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input text-sm"
-                />
-                <ReceiptPhotoButton
-                  label="Add page"
-                  onPhoto={(file) => {
-                    setCaptureType("multi_page")
-                    void addScannedFile(file)
-                  }}
-                  onVideo={() => setNote("Take a photo of the receipt. Video is not used.")}
-                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input text-sm"
-                />
+                <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => { setCaptureType("long"); setCamera(true) }}>
+                  Add section
+                </button>
+                <button type="button" className="min-h-11 rounded-lg border border-input text-sm" onClick={() => { setCaptureType("multi_page"); setCamera(true) }}>
+                  Add page
+                </button>
               </div>
             </div>
           ) : null}
