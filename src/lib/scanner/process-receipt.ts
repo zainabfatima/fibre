@@ -129,6 +129,66 @@ export function insetTowardCenter(points: ScanPoint[], ratio = 0.006): ScanPoint
   }))
 }
 
+/** Crop to the light receipt: dark table, brown table, then a blown-out glare rim. */
+export function trimReceiptFrame(gray: Uint8Array, width: number, height: number) {
+  const darkened = cropPacked(gray, width, trimDarkBounds(gray, width, height))
+  const paper = cropPacked(darkened.data, darkened.width, trimToPaper(darkened.data, darkened.width, darkened.height))
+  return cropPacked(paper.data, paper.width, trimGlareRim(paper.data, paper.width, paper.height))
+}
+
+/**
+ * Drop a brown table around a light receipt.
+ * A row is table only when most of it is darker than the paper, so printed text stays.
+ */
+export function trimToPaper(gray: Uint8Array, width: number, height: number) {
+  const full = { x: 0, y: 0, width, height }
+  if (width < 16 || height < 16) return full
+  const center = regionMedian(gray, width, Math.floor(width * 0.3), Math.floor(height * 0.3), Math.max(1, Math.ceil(width * 0.4)), Math.max(1, Math.ceil(height * 0.4)))
+  if (center < 150) return full
+  const cutoff = Math.min(center - 36, 168)
+  const maxTop = Math.floor(height * 0.7)
+  const maxLeft = Math.floor(width * 0.7)
+  let top = 0
+  let bottom = height - 1
+  let left = 0
+  let right = width - 1
+  while (top < maxTop && isBrownTable(spanPaper(gray, width, top, 0, width - 1, true, cutoff))) top += 1
+  while (bottom > height - 1 - maxTop && bottom > top && isBrownTable(spanPaper(gray, width, bottom, 0, width - 1, true, cutoff))) bottom -= 1
+  while (left < maxLeft && isBrownTable(spanPaper(gray, width, left, top, bottom, false, cutoff))) left += 1
+  while (right > width - 1 - maxLeft && right > left && isBrownTable(spanPaper(gray, width, right, top, bottom, false, cutoff))) right -= 1
+  const pad = 3
+  if (top > 0) top = Math.min(bottom, top + pad)
+  if (bottom < height - 1) bottom = Math.max(top, bottom - pad)
+  if (left > 0) left = Math.min(right, left + pad)
+  if (right < width - 1) right = Math.max(left, right - pad)
+  const nextWidth = right - left + 1
+  const nextHeight = bottom - top + 1
+  if (nextWidth < 48 || nextHeight < 48 || nextWidth < width * 0.18 || nextHeight < height * 0.18) return full
+  return { x: left, y: top, width: nextWidth, height: nextHeight }
+}
+
+/** Shave a thin, flat, over-bright rim. Printed paper is not this bright and flat. */
+export function trimGlareRim(gray: Uint8Array, width: number, height: number) {
+  const full = { x: 0, y: 0, width, height }
+  if (width < 16 || height < 16) return full
+  const center = regionMedian(gray, width, Math.floor(width * 0.3), Math.floor(height * 0.3), Math.max(1, Math.ceil(width * 0.4)), Math.max(1, Math.ceil(height * 0.4)))
+  if (center < 120) return full
+  const maxY = Math.floor(height * 0.08)
+  const maxX = Math.floor(width * 0.08)
+  let top = 0
+  let bottom = height - 1
+  let left = 0
+  let right = width - 1
+  while (top < maxY && isGlareSpan(gray, width, top, 0, width - 1, true, center)) top += 1
+  while (bottom > height - 1 - maxY && bottom > top && isGlareSpan(gray, width, bottom, 0, width - 1, true, center)) bottom -= 1
+  while (left < maxX && isGlareSpan(gray, width, left, top, bottom, false, center)) left += 1
+  while (right > width - 1 - maxX && right > left && isGlareSpan(gray, width, right, top, bottom, false, center)) right -= 1
+  const nextWidth = right - left + 1
+  const nextHeight = bottom - top + 1
+  if (nextWidth < width * 0.7 || nextHeight < height * 0.7) return full
+  return { x: left, y: top, width: nextWidth, height: nextHeight }
+}
+
 export function trimDarkBounds(gray: Uint8Array, width: number, height: number) {
   const maxX = Math.floor(width * 0.08)
   const maxY = Math.floor(height * 0.08)
@@ -187,14 +247,13 @@ export async function processReceipt(cv: ScannerCv, imageOrCanvas: CanvasImageSo
     const gray = toGray(cv, page)
     owned.push(gray)
     const packed = packedGray(gray)
-    const bounds = trimDarkBounds(packed.data, packed.width, packed.height)
-    const trimmed = cropPacked(packed.data, packed.width, bounds)
-    const check = bordersAreClean(trimmed.data, trimmed.width, trimmed.height)
+    const framed = trimReceiptFrame(packed.data, packed.width, packed.height)
+    const check = bordersAreClean(framed.data, framed.width, framed.height)
     const turned = rotateGray(
-      trimmed.data,
-      trimmed.width,
-      trimmed.height,
-      uprightQuarter(trimmed.data, trimmed.width, trimmed.height),
+      framed.data,
+      framed.width,
+      framed.height,
+      uprightQuarter(framed.data, framed.width, framed.height),
     )
     const grayPage = cv.matFromArray(turned.height, turned.width, cv.CV_8UC1, turned.data)
     owned.push(grayPage)
@@ -329,6 +388,19 @@ export function flattenPage(pixels: Uint8Array, width: number, height: number) {
     pixels[index] = Math.min(255, Math.round((pixels[index] * 255) / bg))
   }
   whitenPaper(pixels)
+  sharpenInk(pixels, width, height)
+}
+
+/** Crisp up soft ink. White paper is left alone so the page does not pick up gray halos. */
+export function sharpenInk(pixels: Uint8Array, width: number, height: number) {
+  if (width < 3 || height < 3 || pixels.length < width * height) return
+  const blurred = boxBlur(pixels, width, height, 1)
+  for (let index = 0; index < pixels.length; index += 1) {
+    const value = pixels[index]
+    if (value > 200) continue
+    const next = value + 0.85 * (value - blurred[index])
+    pixels[index] = next <= 0 ? 0 : next >= 255 ? 255 : Math.round(next)
+  }
 }
 
 /** Turn a shaded gray page into white paper. Dark text becomes black. Paper grain is snapped to white, not stretched into speckle. */
@@ -687,6 +759,68 @@ function cropPacked(gray: Uint8Array, width: number, bounds: { x: number; y: num
     data.set(gray.subarray(from, from + bounds.width), y * bounds.width)
   }
   return { data, width: bounds.width, height: bounds.height }
+}
+
+function regionMedian(gray: Uint8Array, width: number, x: number, y: number, regionWidth: number, regionHeight: number) {
+  const hist = new Uint32Array(256)
+  let count = 0
+  for (let row = y; row < y + regionHeight; row += 1) {
+    const start = row * width + x
+    for (let col = 0; col < regionWidth; col += 1) {
+      hist[gray[start + col]] += 1
+      count += 1
+    }
+  }
+  return percentileFromHist(hist, count, 0.5)
+}
+
+function isBrownTable(stats: { paper: number; variance: number }) {
+  return stats.paper < 0.42 && stats.variance < 450
+}
+
+function spanPaper(
+  gray: Uint8Array,
+  width: number,
+  fixed: number,
+  from: number,
+  to: number,
+  horizontal: boolean,
+  cutoff: number,
+) {
+  let paper = 0
+  let sum = 0
+  let sumSq = 0
+  const count = Math.max(0, to - from + 1)
+  for (let cursor = from; cursor <= to; cursor += 1) {
+    const value = horizontal ? gray[fixed * width + cursor] : gray[cursor * width + fixed]
+    sum += value
+    sumSq += value * value
+    if (value >= cutoff) paper += 1
+  }
+  const mean = sum / Math.max(count, 1)
+  return { paper: paper / Math.max(count, 1), variance: sumSq / Math.max(count, 1) - mean * mean }
+}
+
+function isGlareSpan(
+  gray: Uint8Array,
+  width: number,
+  fixed: number,
+  from: number,
+  to: number,
+  horizontal: boolean,
+  center: number,
+) {
+  let sum = 0
+  let sumSq = 0
+  const count = to - from + 1
+  for (let cursor = from; cursor <= to; cursor += 1) {
+    const value = horizontal ? gray[fixed * width + cursor] : gray[cursor * width + fixed]
+    sum += value
+    sumSq += value * value
+  }
+  const mean = sum / Math.max(count, 1)
+  const variance = sumSq / Math.max(count, 1) - mean * mean
+  return mean > Math.max(center + 18, 235) && variance < 80
 }
 
 function rowDarkRatio(gray: Uint8Array, width: number, y: number, left: number, right: number) {

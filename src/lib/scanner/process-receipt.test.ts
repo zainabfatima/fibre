@@ -9,7 +9,10 @@ import {
   quadIsStable,
   quadShift,
   rotateGray,
+  sharpenInk,
   trimDarkBounds,
+  trimGlareRim,
+  trimToPaper,
   uprightQuarter,
   whitenPaper,
 } from "./process-receipt.ts"
@@ -64,6 +67,49 @@ describe("receipt document scan", () => {
     const kept = trimDarkBounds(page, width, height)
     assert.equal(kept.y, 6)
     assert.equal(kept.y + kept.height, height)
+  })
+
+  it("crops a brown table away from the receipt and keeps a printed line", () => {
+    const width = 160
+    const height = 200
+    const gray = new Uint8Array(width * height)
+    gray.fill(96)
+    for (let y = 50; y < 160; y += 1) {
+      for (let x = 24; x < 140; x += 1) gray[y * width + x] = 226
+    }
+    for (let x = 40; x < 120; x += 1) gray[90 * width + x] = 20
+    const bounds = trimToPaper(gray, width, height)
+    assert.ok(bounds.y >= 50, `top still on the table at ${bounds.y}`)
+    assert.ok(bounds.y < 90, `printed line was cut, top ${bounds.y}`)
+    assert.ok(bounds.x >= 24, `left still on the table at ${bounds.x}`)
+    assert.ok(bounds.x + bounds.width <= 143)
+    assert.ok(bounds.y + bounds.height <= 163)
+    assert.ok(gray[(bounds.y + 2) * width + bounds.x + 2] > 180)
+  })
+
+  it("shaves a flat glare rim and leaves the paper", () => {
+    const width = 80
+    const height = 100
+    const gray = new Uint8Array(width * height)
+    gray.fill(205)
+    for (let y = 0; y < 4; y += 1) gray.fill(252, y * width, (y + 1) * width)
+    const bounds = trimGlareRim(gray, width, height)
+    assert.equal(bounds.y, 4)
+    assert.equal(bounds.height, height - 4)
+    const page = new Uint8Array(width * height)
+    page.fill(210)
+    assert.equal(trimGlareRim(page, width, height).y, 0)
+  })
+
+  it("darkens soft ink without turning white paper gray", () => {
+    const width = 24
+    const height = 8
+    const pixels = new Uint8Array(width * height)
+    pixels.fill(255)
+    for (let x = 8; x < 16; x += 1) pixels[3 * width + x] = 70
+    sharpenInk(pixels, width, height)
+    assert.equal(pixels[0], 255)
+    assert.ok(pixels[3 * width + 12] < 70, `ink stayed soft at ${pixels[3 * width + 12]}`)
   })
 
   it("turns shaded gray paper white and keeps dark text dark", () => {
