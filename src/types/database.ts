@@ -226,6 +226,9 @@ export type Database = {
           duplicate_of: string | null
           duplicate_confirmed: boolean
           return_confirmed: boolean
+          is_reimbursement: boolean
+          reimbursement_name: string | null
+          qb_status: boolean
           created_at: string
           updated_at: string
           created_by: string | null
@@ -263,6 +266,9 @@ export type Database = {
           duplicate_of?: string | null
           duplicate_confirmed?: boolean
           return_confirmed?: boolean
+          is_reimbursement?: boolean
+          reimbursement_name?: string | null
+          qb_status?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -300,6 +306,9 @@ export type Database = {
           duplicate_of?: string | null
           duplicate_confirmed?: boolean
           return_confirmed?: boolean
+          is_reimbursement?: boolean
+          reimbursement_name?: string | null
+          qb_status?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -406,6 +415,9 @@ export type Database = {
           duplicate_of: string | null
           duplicate_confirmed: boolean
           return_confirmed: boolean
+          is_reimbursement: boolean
+          reimbursement_name: string | null
+          qb_status: boolean
           created_at: string
           updated_at: string
           created_by: string | null

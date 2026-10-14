@@ -57,6 +57,9 @@ export type SheetRow = {
   verificationStatus: string
   hasReceipt?: boolean
   pageCount?: number
+  reimbursement?: boolean
+  reimbursementNote?: string | null
+  qbStatus?: boolean
 }
 
 type CategoryOption = { id: number; code: number; name: string }

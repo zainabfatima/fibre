@@ -138,6 +138,24 @@ export function CategorySheets({
     else router.refresh()
   }
 
+  async function saveReimbursement(row: SheetRow, reimbursement: boolean) {
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, reimbursement })
+    if (result.error) toast.error(result.error)
+    else router.refresh()
+  }
+
+  async function saveReimbursementNote(row: SheetRow, reimbursementName: string) {
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, reimbursementName })
+    if (result.error) toast.error(result.error)
+    else router.refresh()
+  }
+
+  async function saveQuickBooks(row: SheetRow, qbStatus: boolean) {
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, qbStatus })
+    if (result.error) toast.error(result.error)
+    else router.refresh()
+  }
+
   async function confirmNotDuplicate(row: SheetRow) {
     const result = await clearDuplicate(projectId, row.id)
     if (result.error) toast.error(result.error)
@@ -176,6 +194,9 @@ export function CategorySheets({
           onInvoice={saveInvoice}
           onStatus={saveStatus}
           onCategory={saveCategory}
+          onReimbursement={saveReimbursement}
+          onReimbursementNote={saveReimbursementNote}
+          onQuickBooks={saveQuickBooks}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
           onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
@@ -202,6 +223,9 @@ export function CategorySheets({
           onInvoice={saveInvoice}
           onStatus={saveStatus}
           onCategory={saveCategory}
+          onReimbursement={saveReimbursement}
+          onReimbursementNote={saveReimbursementNote}
+          onQuickBooks={saveQuickBooks}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
           onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
@@ -238,7 +262,7 @@ export function CategorySheets({
                   Retake picture
                 </button>
               ) : null}
-              {preview.hasReceipt !== false ? <ReceiptFileActions expenseId={preview.id} /> : null}
+              {!readOnly && preview.hasReceipt !== false ? <ReceiptFileActions expenseId={preview.id} /> : null}
               <a href={`/r/${preview.id}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium">
                 Open full size
               </a>
@@ -333,6 +357,62 @@ function AmountInput({
   )
 }
 
+function YesNoSelect({
+  value,
+  label,
+  onChange,
+}: {
+  value: boolean
+  label: string
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value ? "yes" : "no"}
+      onChange={(event) => onChange(event.target.value === "yes")}
+      className="h-9 rounded-lg border border-input bg-transparent px-2 text-sm"
+    >
+      <option value="no">No</option>
+      <option value="yes">Yes</option>
+    </select>
+  )
+}
+
+function ReimbursementFields({
+  row,
+  onFlag,
+  onNote,
+}: {
+  row: SheetRow
+  onFlag: (row: SheetRow, reimbursement: boolean) => void
+  onNote: (row: SheetRow, note: string) => void
+}) {
+  const who = row.vendor || "receipt"
+  return (
+    <div className="grid min-w-36 gap-1">
+      <YesNoSelect
+        value={Boolean(row.reimbursement)}
+        label={`Reimbursement for ${who}`}
+        onChange={(next) => onFlag(row, next)}
+      />
+      <input
+        key={`${row.id}:${row.reimbursementNote ?? ""}`}
+        defaultValue={row.reimbursementNote ?? ""}
+        maxLength={80}
+        placeholder="Who to reimburse"
+        aria-label={`Reimbursement note for ${who}`}
+        onBlur={(event) => {
+          const next = event.target.value.trim()
+          if (next === (row.reimbursementNote ?? "")) return
+          onNote(row, next)
+        }}
+        className="h-9 w-full rounded-lg border border-amber-300 bg-white px-2 text-sm"
+      />
+    </div>
+  )
+}
+
 function CategoryBlock({
   title,
   budget,
@@ -350,6 +430,9 @@ function CategoryBlock({
   onInvoice,
   onStatus,
   onCategory,
+  onReimbursement,
+  onReimbursementNote,
+  onQuickBooks,
   onDelete,
   onConfirmDuplicate,
   onConfirmReturn,
@@ -374,6 +457,9 @@ function CategoryBlock({
   onInvoice: (row: SheetRow, number: string) => void
   onStatus: (row: SheetRow, status: "unpaid" | "paid" | "partial") => void
   onCategory: (row: SheetRow, categoryId: number) => void
+  onReimbursement: (row: SheetRow, reimbursement: boolean) => void
+  onReimbursementNote: (row: SheetRow, note: string) => void
+  onQuickBooks: (row: SheetRow, inQuickBooks: boolean) => void
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
   onConfirmReturn: (row: SheetRow) => void
@@ -382,7 +468,7 @@ function CategoryBlock({
   allRows: SheetRow[]
   readOnly: boolean
 }) {
-  const tableColumns = 5 + (readOnly ? 0 : 2) + (invoiceTracking ? 3 : 0)
+  const tableColumns = 5 + (readOnly ? 0 : 4) + (invoiceTracking ? 3 : 0)
   const spentCents = sumCents(rows.map((row) => row.amount))
   const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -480,6 +566,20 @@ function CategoryBlock({
                       <StatusBadge kind="invoice" status={row.invoiceId ? row.billingStatus : "not_invoiced"} />
                     </div>
                   ) : null}
+                  {readOnly ? null : (
+                    <div className="mt-3 grid gap-2 rounded-lg bg-amber-50 p-2 text-amber-950">
+                      <p className="text-xs font-medium">Reimbursement</p>
+                      <ReimbursementFields row={row} onFlag={onReimbursement} onNote={onReimbursementNote} />
+                      <label className="grid gap-1 text-xs font-medium">
+                        QuickBooks
+                        <YesNoSelect
+                          value={Boolean(row.qbStatus)}
+                          label={`QuickBooks for ${row.vendor || "receipt"}`}
+                          onChange={(next) => onQuickBooks(row, next)}
+                        />
+                      </label>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className={`mt-3 grid gap-2 ${invoiceTracking ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -499,7 +599,7 @@ function CategoryBlock({
                     Retake picture
                   </button>
                 )}
-                {row.hasReceipt !== false ? (
+                {!readOnly && row.hasReceipt !== false ? (
                   <ReceiptFileActions
                     expenseId={row.id}
                     className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 text-sm font-medium"
@@ -598,7 +698,7 @@ function CategoryBlock({
           </div>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1080px] text-sm">
+          <table className="w-full min-w-[1280px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>
@@ -619,6 +719,12 @@ function CategoryBlock({
                     <th className="px-3 py-2 font-medium">Invoice view</th>
                   </>
                 ) : null}
+                {readOnly ? null : (
+                  <>
+                    <th className="bg-amber-50 px-3 py-2 font-medium text-amber-950">Reimbursement</th>
+                    <th className="bg-sky-50 px-3 py-2 font-medium text-sky-950">QuickBooks</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -688,7 +794,7 @@ function CategoryBlock({
                           Retake
                         </button>
                       )}
-                      {row.hasReceipt !== false ? (
+                      {!readOnly && row.hasReceipt !== false ? (
                         <ReceiptFileActions
                           expenseId={row.id}
                           className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg border border-input px-2 text-sm"
@@ -787,6 +893,20 @@ function CategoryBlock({
                     </>
                     )
                   ) : null}
+                  {readOnly ? null : (
+                    <>
+                      <td className="bg-amber-50 px-3 py-2 align-top text-amber-950">
+                        <ReimbursementFields row={row} onFlag={onReimbursement} onNote={onReimbursementNote} />
+                      </td>
+                      <td className="bg-sky-50 px-3 py-2 align-top">
+                        <YesNoSelect
+                          value={Boolean(row.qbStatus)}
+                          label={`QuickBooks for ${row.vendor || "receipt"}`}
+                          onChange={(next) => onQuickBooks(row, next)}
+                        />
+                      </td>
+                    </>
+                  )}
                 </tr>
                 </Fragment>
               ))}
@@ -795,7 +915,7 @@ function CategoryBlock({
                   Spent
                 </td>
                 <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
-                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 3) + (invoiceTracking ? 3 : 0)}>
+                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 5) + (invoiceTracking ? 3 : 0)}>
                   {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
                   <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
                 </td>

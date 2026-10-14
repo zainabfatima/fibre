@@ -52,13 +52,20 @@ export function UploadQueue({
   const [manual, setManual] = useState(true)
   const [categoryId, setCategoryId] = useState("")
   const [categoryError, setCategoryError] = useState<string | null>(null)
+  const [reimburse, setReimburse] = useState(false)
+  const [reimburseName, setReimburseName] = useState("")
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(storageKey)
       if (raw) {
-        const parsed = JSON.parse(raw) as { manual?: unknown; categoryId?: unknown }
+        const parsed = JSON.parse(raw) as {
+          manual?: unknown
+          categoryId?: unknown
+          reimburse?: unknown
+          reimburseName?: unknown
+        }
         if (typeof parsed.manual === "boolean") setManual(parsed.manual)
         if (
           typeof parsed.categoryId === "string" &&
@@ -66,6 +73,8 @@ export function UploadQueue({
         ) {
           setCategoryId(parsed.categoryId)
         }
+        if (typeof parsed.reimburse === "boolean") setReimburse(parsed.reimburse)
+        if (typeof parsed.reimburseName === "string") setReimburseName(parsed.reimburseName.slice(0, 80))
       }
     } catch {
       // Keep the default: manual category on, nothing selected yet.
@@ -75,8 +84,8 @@ export function UploadQueue({
 
   useEffect(() => {
     if (!hydrated) return
-    sessionStorage.setItem(storageKey, JSON.stringify({ manual, categoryId }))
-  }, [hydrated, manual, categoryId, storageKey])
+    sessionStorage.setItem(storageKey, JSON.stringify({ manual, categoryId, reimburse, reimburseName }))
+  }, [hydrated, manual, categoryId, reimburse, reimburseName, storageKey])
 
   function update(id: string, patch: Partial<Item>) {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
@@ -137,6 +146,10 @@ export function UploadQueue({
         })
         body.set("thumb", new File([result.thumbnailBlob], "thumb.webp", { type: result.thumbnailBlob.type || "image/webp" }))
         if (lockedCategory != null) body.set("categoryId", String(lockedCategory))
+        if (reimburse) {
+          body.set("reimbursement", "true")
+          body.set("reimbursementName", reimburseName.trim())
+        }
         const uploaded = await saveScannedReceipt(body)
         if (uploaded.error || !uploaded.id) {
           hadProblem = true
@@ -227,6 +240,31 @@ export function UploadQueue({
             {categoryError}
           </p>
         ) : null}
+        <label className="grid gap-1 rounded-lg bg-amber-50 p-3 text-base text-amber-950">
+          Reimbursement
+          <select
+            value={reimburse ? "yes" : "no"}
+            onChange={(event) => setReimburse(event.target.value === "yes")}
+            className="h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-base text-foreground"
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+          <span className="text-sm">Stays on for the next receipts, the same way the category does.</span>
+          {reimburse ? (
+            <>
+              Note — who to reimburse
+              <input
+                value={reimburseName}
+                onChange={(event) => setReimburseName(event.target.value)}
+                maxLength={80}
+                placeholder="Who to reimburse"
+                className="h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-base text-foreground"
+              />
+              <span className="text-sm">This note stays filled in for the next receipts.</span>
+            </>
+          ) : null}
+        </label>
       </div>
       {scan ? (
         <ReceiptScanner

@@ -69,6 +69,12 @@ export async function lookupPageHashes(projectId: string, hashes: string[]) {
   }
 }
 
+function reimbursementNameFrom(formData: FormData) {
+  if (formData.get("reimbursement") !== "true") return null
+  const name = String(formData.get("reimbursementName") ?? "").trim().replace(/\s+/g, " ")
+  return name ? name.slice(0, 80) : null
+}
+
 export async function saveScannedReceipt(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "")
   const hashes = String(formData.get("hashes") ?? "")
@@ -169,6 +175,8 @@ export async function saveScannedReceipt(formData: FormData) {
     page_count: pageCount,
     file_type: isPdf ? "pdf" : "image",
     capture_type: captureType,
+    is_reimbursement: formData.get("reimbursement") === "true",
+    reimbursement_name: reimbursementNameFrom(formData),
     ...(categoryId != null ? { category_id: categoryId } : {}),
   })
   if (error) {
@@ -637,6 +645,9 @@ export async function updateExpenseFields(input: {
   description?: string
   receiptNumber?: string
   paymentMethod?: string
+  reimbursement?: boolean
+  reimbursementName?: string
+  qbStatus?: boolean
   verify?: boolean
 }) {
   const supabase = await requireAdmin()
@@ -653,6 +664,12 @@ export async function updateExpenseFields(input: {
   if ("description" in input) patch.description = simpleDescription(input.description) || null
   if ("receiptNumber" in input) patch.receipt_number = input.receiptNumber?.trim() || null
   if ("paymentMethod" in input) patch.payment_method = input.paymentMethod?.trim() || null
+  if ("reimbursement" in input) patch.is_reimbursement = input.reimbursement === true
+  if ("reimbursementName" in input) {
+    const name = input.reimbursementName?.trim().replace(/\s+/g, " ") ?? ""
+    patch.reimbursement_name = name ? name.slice(0, 80) : null
+  }
+  if ("qbStatus" in input) patch.qb_status = input.qbStatus === true
   if (input.verify) {
     const { data: existing, error: existingError } = await supabase
       .from("expenses")
