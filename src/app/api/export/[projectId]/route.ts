@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
-import { buildWorkbook } from "@/lib/excel-export"
+import { buildSummaryWorkbook, buildWorkbook } from "@/lib/excel-export"
+import { clientSessionOwnsProject } from "@/lib/client-access"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getSessionToken } from "@/lib/session"
 
@@ -13,11 +14,14 @@ export async function GET(
   const { projectId } = await context.params
   const url = new URL(request.url)
   const shareToken = url.searchParams.get("t")
+  const summary = url.searchParams.get("kind") === "summary"
   const session = await getSessionToken()
+  const clientOwns = await clientSessionOwnsProject(projectId)
   const admin = createAdminClient()
   const { data: project } = await admin.from("projects").select("*").eq("id", projectId).maybeSingle()
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
-  if (!session && (!shareToken || project.share_token !== shareToken)) {
+  const shareAllowed = Boolean(shareToken && project.share_token === shareToken)
+  if (!session && !clientOwns && !shareAllowed) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 })
   }
 
@@ -26,18 +30,30 @@ export async function GET(
     .select("*")
     .eq("project_id", projectId)
     .order("expense_date", { ascending: false, nullsFirst: false })
-  if (!session) expensesQuery = expensesQuery.eq("verification_status", "verified")
+  if (!session && !clientOwns) expensesQuery = expensesQuery.eq("verification_status", "verified")
 
-  const [{ data: categories }, { data: expenses }] = await Promise.all([
-    admin.from("v_project_category_totals").select("*").eq("project_id", projectId).order("code"),
+  const [{ data: categories }, { data: expenses }, { data: clientPaid }, { data: payments }] = await Promise.all([
+    summary ? Promise.resolve({ data: [] }) : admin.from("v_project_category_totals").select("*").eq("project_id", projectId).order("code"),
     expensesQuery,
+    admin.from("client_paid_expenses").select("paid_date, amount, note").eq("project_id", projectId).order("paid_date"),
+    summary
+      ? admin.from("client_payments").select("received_date, amount, note").eq("project_id", projectId).order("received_date")
+      : Promise.resolve({ data: [] }),
   ])
 
-  const workbook = await buildWorkbook({
-    project,
-    categories: categories ?? [],
-    expenses: expenses ?? [],
-  })
+  const workbook = summary
+    ? await buildSummaryWorkbook({
+        project,
+        expenses: expenses ?? [],
+        clientPaid: clientPaid ?? [],
+        payments: payments ?? [],
+      })
+    : await buildWorkbook({
+        project,
+        categories: categories ?? [],
+        expenses: expenses ?? [],
+        clientPaid: clientPaid ?? [],
+      })
   return new NextResponse(new Uint8Array(workbook.body), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

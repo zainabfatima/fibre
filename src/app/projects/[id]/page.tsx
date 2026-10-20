@@ -5,7 +5,7 @@ import { type SheetRow } from "@/components/expense-sheet"
 import { MoneySummary } from "@/components/money-summary"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
-import { moneyToCents, signedExpenseAmount, sumCents } from "@/lib/money"
+import { moneyToCents, signedExpenseAmount, sumCents, totalExpenseCents } from "@/lib/money"
 import {
   getProject,
   getSummary,
@@ -76,7 +76,10 @@ export default async function ProjectExpensesPage({
     reimbursementNote: row.reimbursement_name,
     qbStatus: Boolean(row.qb_status),
   }))
-  const spentCents = moneyToCents(summary?.total_spent ?? 0)
+  const billableCents = moneyToCents(summary?.total_spent ?? 0)
+  const builderFeeCents = moneyToCents(summary?.builder_fee_amount ?? 0)
+  const clientPaidCents = moneyToCents(summary?.client_paid_total ?? 0)
+  const spentCents = totalExpenseCents(billableCents, builderFeeCents)
   const receivedCents = sumCents(payments.map((payment) => payment.amount))
   const chart = totals
     .map((row) => ({
@@ -105,7 +108,14 @@ export default async function ProjectExpensesPage({
     <ExpenseSearchProvider categories={sheetCategories} rows={sheetRows}>
     <div>
       <div className="grid gap-4 px-4 pt-4">
-        <MoneySummary spentCents={spentCents} receivedCents={receivedCents} />
+        <MoneySummary
+          spentCents={spentCents}
+          receivedCents={receivedCents}
+          builderFeeCents={builderFeeCents}
+          clientPaidCents={clientPaidCents}
+          builderFeePercent={project.builder_fee_percent}
+          breakdown={false}
+        />
       </div>
       <ExpenseAmountSearchBar />
       {needs ? null : (

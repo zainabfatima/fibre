@@ -17,9 +17,21 @@ const projectSchema = z.object({
   clientName: z.string().trim().optional(),
   clientEmail: z.string().trim().optional(),
   contractAmount: z.string().trim().optional(),
+  builderFeePercent: z.string().trim().optional(),
   status: z.enum(["active", "completed", "on_hold"]),
   invoiceTracking: z.enum(["yes", "no"]),
 })
+
+function readBuilderFee(value: string | undefined) {
+  const raw = (value ?? "").trim()
+  if (!raw) return { percent: 0 }
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) {
+    return { error: "Builder fee must be a percent from 0 to 100, such as 15 or 12.5" }
+  }
+  const percent = Number(raw)
+  if (percent > 100) return { error: "Builder fee must be a percent from 0 to 100" }
+  return { percent }
+}
 
 function readProject(formData: FormData) {
   const parsed = projectSchema.safeParse({
@@ -28,6 +40,7 @@ function readProject(formData: FormData) {
     clientName: formData.get("clientName") || undefined,
     clientEmail: formData.get("clientEmail") || undefined,
     contractAmount: formData.get("contractAmount") || undefined,
+    builderFeePercent: formData.get("builderFeePercent") || undefined,
     status: formData.get("status") || "active",
     invoiceTracking: formData.get("invoiceTracking") === "yes" ? "yes" : "no",
   })
@@ -40,6 +53,8 @@ function readProject(formData: FormData) {
     if (cents == null) return { error: "Contract amount is not a valid dollar amount" }
     contract = centsToMoney(cents)
   }
+  const fee = readBuilderFee(parsed.data.builderFeePercent)
+  if ("error" in fee) return { error: fee.error }
   return {
     row: {
       name: parsed.data.name,
@@ -47,6 +62,7 @@ function readProject(formData: FormData) {
       client_name: parsed.data.clientName || null,
       client_email: parsed.data.clientEmail || null,
       contract_amount: contract,
+      builder_fee_percent: fee.percent,
       status: parsed.data.status,
       invoice_tracking: parsed.data.invoiceTracking === "yes",
     },

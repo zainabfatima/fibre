@@ -6,6 +6,7 @@ import { createProject, updateProject, type ActionState } from "@/app/actions/pr
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { formatFeePercent } from "@/lib/money"
 
 const initial: ActionState = { error: null }
 
@@ -21,6 +22,7 @@ export function ProjectForm({
     contract_amount: number | null
     status: "active" | "completed" | "on_hold"
     invoice_tracking: boolean
+    builder_fee_percent: number
   }
 }) {
   const action = project ? updateProject : createProject
@@ -40,6 +42,13 @@ export function ProjectForm({
         name="contractAmount"
         defaultValue={project?.contract_amount == null ? "" : String(project.contract_amount)}
       />
+      <div className="grid gap-2">
+        <Label htmlFor="builderFeePercent">Builder fee (%)</Label>
+        <BuilderFeeInput percent={project?.builder_fee_percent ?? 0} />
+        <p className="text-sm text-muted-foreground">
+          Added to the total. The percent applies to project expenses and to amounts the client paid directly.
+        </p>
+      </div>
       <fieldset className="grid gap-2">
         <legend className="text-sm font-medium">Do you want invoice tracking?</legend>
         <label className="flex items-center gap-2 text-sm">
@@ -84,6 +93,19 @@ export function ProjectForm({
         {pending ? "Saving…" : project ? "Save project" : "Create project"}
       </Button>
     </form>
+  )
+}
+
+function BuilderFeeInput({ percent }: { percent: number | string }) {
+  const value = formatFeePercent(percent)
+  return (
+    <Input
+      key={value}
+      id="builderFeePercent"
+      name="builderFeePercent"
+      inputMode="decimal"
+      defaultValue={value}
+    />
   )
 }
 

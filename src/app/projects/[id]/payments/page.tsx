@@ -1,6 +1,6 @@
 import { MoneySummary } from "@/components/money-summary"
 import { PaymentForm, PaymentList } from "@/components/payment-form"
-import { centsToMoney, moneyToCents, sumCents } from "@/lib/money"
+import { centsToMoney, moneyToCents, sumCents, totalExpenseCents } from "@/lib/money"
 import { getProject, getSummary, listClientPayments } from "@/lib/queries"
 
 export const dynamic = "force-dynamic"
@@ -15,7 +15,10 @@ export default async function PaymentsPage({
   if (!project) return null
 
   const [payments, summary] = await Promise.all([listClientPayments(id), getSummary(id)])
-  const spentCents = moneyToCents(summary?.total_spent ?? 0)
+  const billableCents = moneyToCents(summary?.total_spent ?? 0)
+  const builderFeeCents = moneyToCents(summary?.builder_fee_amount ?? 0)
+  const clientPaidCents = moneyToCents(summary?.client_paid_total ?? 0)
+  const spentCents = totalExpenseCents(billableCents, builderFeeCents)
   const receivedCents = sumCents(payments.map((payment) => payment.amount))
 
   return (
@@ -23,10 +26,16 @@ export default async function PaymentsPage({
       <div>
         <h2 className="text-lg font-medium">Money received from client</h2>
         <p className="text-sm text-muted-foreground">
-          Add each payment with its date. Balance left is total expense minus these amounts.
+          Add each payment with its date. Balance left is total expense minus money received minus expenses the client paid. The total includes both builder fees.
         </p>
       </div>
-      <MoneySummary spentCents={spentCents} receivedCents={receivedCents} />
+      <MoneySummary
+        spentCents={spentCents}
+        receivedCents={receivedCents}
+        builderFeeCents={builderFeeCents}
+        clientPaidCents={clientPaidCents}
+        builderFeePercent={project.builder_fee_percent}
+      />
       <PaymentForm projectId={id} />
       <PaymentList
         projectId={id}

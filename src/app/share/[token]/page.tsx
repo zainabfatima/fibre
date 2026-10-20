@@ -3,19 +3,24 @@ import { notFound } from "next/navigation"
 import { BrandLogo } from "@/components/brand-logo"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { CategoryChart } from "@/components/category-chart"
+import { AudienceTabs, ExpenseDetailSummary } from "@/components/expense-detail-summary"
 import { StatusBadge } from "@/components/status-badge"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
-import { centsToMoney, formatMoney, moneyToCents, returnAmountClass, sumCents, amountOverBudget } from "@/lib/money"
+import { balanceCents, centsToMoney, formatMoney, moneyToCents, percentOfCents, returnAmountClass, sumCents, totalExpenseCents, amountOverBudget } from "@/lib/money"
 
 export const dynamic = "force-dynamic"
 
 export default async function SharePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>
+  searchParams: Promise<{ view?: string }>
 }) {
   const { token } = await params
+  const { view } = await searchParams
+  const detailed = view === "summary"
   const admin = createAdminClient()
   const { data: project } = await admin
     .from("projects")
@@ -24,10 +29,11 @@ export default async function SharePage({
     .maybeSingle()
   if (!project) notFound()
 
-  const [{ data: expenses }, { data: totals }, { data: payments }] = await Promise.all([
+  const [{ data: expenses }, { data: totals }, { data: payments }, { data: clientPaid }] = await Promise.all([
     admin.from("v_expense_rows").select("*").eq("project_id", project.id).order("expense_date"),
     admin.from("v_project_category_totals").select("*").eq("project_id", project.id).order("code"),
-    admin.from("client_payments").select("amount").eq("project_id", project.id),
+    admin.from("client_payments").select("id, received_date, amount, note").eq("project_id", project.id).order("received_date"),
+    admin.from("client_paid_expenses").select("id, paid_date, amount, note").eq("project_id", project.id).order("paid_date", { ascending: false }),
   ])
 
   const rows = (expenses ?? []).filter((row) => row.verification_status === "verified")
@@ -39,8 +45,12 @@ export default async function SharePage({
     : { data: [] }
   const thumbs = new Map((signed.data ?? []).map((item) => [item.path, item.signedUrl]))
 
-  const totalCents = sumCents(rows.map((row) => row.amount))
+  const billableCents = sumCents(rows.map((row) => row.amount))
+  const clientPaidCents = sumCents((clientPaid ?? []).map((entry) => entry.amount))
+  const builderFeeCents = percentOfCents(billableCents + clientPaidCents, project.builder_fee_percent)
+  const totalCents = totalExpenseCents(billableCents, builderFeeCents)
   const receivedCents = sumCents((payments ?? []).map((payment) => payment.amount))
+  const leftCents = balanceCents(totalCents, receivedCents, clientPaidCents)
   const chart = (totals ?? []).map((row) => ({
     label: formatCategory(row.code, row.name),
     name: formatCategory(row.code, row.name),
@@ -76,7 +86,43 @@ export default async function SharePage({
         <h1 className="text-2xl font-semibold break-words">{project.name}</h1>
         {project.address ? <p className="text-sm text-muted-foreground break-words">{project.address}</p> : null}
       </header>
+      <AudienceTabs
+        expensesHref={`/share/${token}`}
+        summaryHref={`/share/${token}?view=summary`}
+        current={detailed ? "summary" : "expenses"}
+      />
 
+      {detailed ? (
+        <ExpenseDetailSummary
+          percent={project.builder_fee_percent}
+          expenses={rows.map((row) => ({
+            id: row.id,
+            date: row.expense_date,
+            label: row.vendor?.trim() || "Receipt",
+            category: row.category_code != null && row.category_name ? formatCategory(row.category_code, row.category_name) : "Uncategorized",
+            categorySort: row.category_code ?? 9999,
+            amountCents: moneyToCents(row.amount),
+          }))}
+          clientPaid={(clientPaid ?? []).map((entry) => ({
+            id: entry.id,
+            date: entry.paid_date,
+            label: entry.note?.trim() || "Paid by client",
+            amountCents: moneyToCents(entry.amount),
+          }))}
+          payments={(payments ?? []).map((payment) => ({
+            id: payment.id,
+            date: payment.received_date,
+            label: payment.note?.trim() || "Money received",
+            amountCents: moneyToCents(payment.amount),
+          }))}
+          billableCents={billableCents}
+          builderFeeCents={builderFeeCents}
+          clientPaidCents={clientPaidCents}
+          receivedCents={receivedCents}
+          excelHref={`/api/export/${project.id}?kind=summary&t=${token}`}
+        />
+      ) : (
+      <>
       <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <SummaryCard
           label="Total expense"
@@ -87,8 +133,9 @@ export default async function SharePage({
         <SummaryCard label="Money received" value={formatMoney(centsToMoney(receivedCents))} />
         <SummaryCard
           label="Balance left"
-          value={formatMoney(centsToMoney(totalCents - receivedCents))}
-          alert={totalCents - receivedCents > 0}
+          value={formatMoney(centsToMoney(leftCents))}
+          alert={leftCents > 0}
+          hint="Total expense − money received − expense paid by client"
         />
       </section>
 
@@ -118,7 +165,24 @@ export default async function SharePage({
             invoiceTracking={project.invoice_tracking}
           />
         ) : null}
+        {(clientPaid ?? []).length > 0 ? (
+          <section className="rounded-xl bg-violet-50 p-4 text-violet-950 ring-1 ring-violet-200">
+            <h2 className="font-medium">Expense paid by client</h2>
+            <p className="mb-2 text-sm">Subtracted in the balance. The builder fee still applies to these amounts.</p>
+            <ul className="grid gap-2">
+              {(clientPaid ?? []).map((entry) => (
+                <li key={entry.id} className="flex items-center gap-3 text-sm">
+                  <span>{entry.paid_date}</span>
+                  <span className="font-medium tabular-nums">{formatMoney(centsToMoney(moneyToCents(entry.amount)))}</span>
+                  <span className="min-w-0 flex-1 truncate">{entry.note}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </div>
+      </>
+      )}
       </main>
     </div>
   )
@@ -130,17 +194,45 @@ function SummaryCard({
   alert,
   emphasis,
   negative,
+  hint,
+  lines,
 }: {
   label: string
   value: string
   alert?: boolean
   emphasis?: boolean
   negative?: boolean
+  hint?: string
+  lines?: { label: string; hint: string; value: string; tone: "fee" | "client" | "clientFee" }[]
 }) {
+  const totalTone = negative ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-950"
   return (
     <div className={`rounded-xl border-t-4 border-t-primary bg-card p-4 ring-1 ring-foreground/10 ${emphasis ? "col-span-2 lg:col-span-1" : ""}`}>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className={`mt-1 font-semibold tabular-nums ${emphasis ? "text-3xl" : "text-xl"} ${negative || alert ? "text-red-700 dark:text-red-300" : ""}`}>{value}</p>
+      <p className={`text-sm ${emphasis ? "font-bold text-emerald-950" : "text-muted-foreground"}`}>{label}</p>
+      <p className={`mt-1 tabular-nums ${emphasis ? `rounded-lg px-2 py-1 text-3xl font-bold ${totalTone}` : "text-xl font-semibold"} ${!emphasis && (negative || alert) ? "text-red-700" : ""}`}>{value}</p>
+      {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+      {lines?.length ? (
+        <dl className="mt-3 grid gap-2">
+          {lines.map((line) => (
+            <div
+              key={line.label}
+              className={`flex items-baseline justify-between gap-3 rounded-lg px-2 py-1.5 ${
+                line.tone === "fee"
+                  ? "bg-amber-100 text-amber-950"
+                  : line.tone === "clientFee"
+                    ? "ml-3 border-l-4 border-rose-400 bg-rose-50 text-rose-950"
+                    : "bg-violet-100 text-violet-950"
+              }`}
+            >
+              <dt>
+                <span className="text-sm font-medium">{line.label}</span>
+                <span className="mt-0.5 block text-xs font-normal opacity-80">{line.hint}</span>
+              </dt>
+              <dd className="text-sm font-semibold tabular-nums">{line.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
     </div>
   )
 }

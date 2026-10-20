@@ -47,7 +47,7 @@ export function CategorySheets({
     rows: scoped.filter((row) => row.categoryId === category.id),
   }))
   const uncategorized = scoped.filter((row) => row.categoryId == null)
-  const shown = mode === "needs" ? sections.filter((section) => section.rows.length > 0) : sections
+  const shown = mode === "all" ? sections : sections.filter((section) => section.rows.length > 0)
   const search = useExpenseSearch()
   const matchIds = useMemo(() => search?.matchIds ?? [], [search?.matchIds])
   const activeIndex = search?.activeIndex ?? 0
@@ -698,7 +698,7 @@ function CategoryBlock({
           </div>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1280px] text-sm">
+          <table className="w-full min-w-[1400px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>

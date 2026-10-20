@@ -91,6 +91,33 @@ export type Database = {
         }
         Relationships: []
       }
+      client_paid_expenses: {
+        Row: {
+          id: string
+          project_id: string
+          paid_date: string
+          amount: number
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          paid_date: string
+          amount: Money
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          paid_date?: string
+          amount?: Money
+          note?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           id: number
@@ -229,6 +256,7 @@ export type Database = {
           is_reimbursement: boolean
           reimbursement_name: string | null
           qb_status: boolean
+          paid_by_client: boolean
           created_at: string
           updated_at: string
           created_by: string | null
@@ -269,6 +297,7 @@ export type Database = {
           is_reimbursement?: boolean
           reimbursement_name?: string | null
           qb_status?: boolean
+          paid_by_client?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -309,6 +338,7 @@ export type Database = {
           is_reimbursement?: boolean
           reimbursement_name?: string | null
           qb_status?: boolean
+          paid_by_client?: boolean
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -418,6 +448,7 @@ export type Database = {
           is_reimbursement: boolean
           reimbursement_name: string | null
           qb_status: boolean
+          paid_by_client: boolean
           created_at: string
           updated_at: string
           created_by: string | null
@@ -466,6 +497,7 @@ export type Database = {
           receipt_count: number
           needs_review_count: number
           builder_fee_amount: number
+          client_paid_total: number
         }
         Relationships: []
       }

@@ -3,7 +3,7 @@ import { DashboardView } from "@/components/dashboard-view"
 import { LiveRefresh } from "@/components/live-refresh"
 import { SetupNotice } from "@/components/setup-notice"
 import { hasPublicEnv } from "@/lib/env"
-import { centsToMoney, moneyToCents } from "@/lib/money"
+import { balanceCents, centsToMoney, moneyToCents, totalExpenseCents } from "@/lib/money"
 import { listClientPaymentAmounts, listSummaries } from "@/lib/queries"
 
 export const dynamic = "force-dynamic"
@@ -20,8 +20,7 @@ export default async function HomePage() {
   const [summaries, payments] = await Promise.all([listSummaries(), listClientPaymentAmounts()])
   const receivedByProject = new Map<string, number>()
   for (const payment of payments) {
-    const projectId = payment.project_id
-    receivedByProject.set(projectId, (receivedByProject.get(projectId) ?? 0) + moneyToCents(payment.amount))
+    receivedByProject.set(payment.project_id, (receivedByProject.get(payment.project_id) ?? 0) + moneyToCents(payment.amount))
   }
 
   return (
@@ -30,16 +29,18 @@ export default async function HomePage() {
       <LiveRefresh />
       <DashboardView
         projects={summaries.map((project) => {
-          const spentCents = moneyToCents(project.total_spent)
-          const receivedCents = receivedByProject.get(project.project_id) ?? 0
+          const billableCents = moneyToCents(project.total_spent)
+          const builderFeeCents = moneyToCents(project.builder_fee_amount)
+          const clientPaidCents = moneyToCents(project.client_paid_total)
+          const spentCents = totalExpenseCents(billableCents, builderFeeCents)
+          const leftCents = balanceCents(spentCents, receivedByProject.get(project.project_id) ?? 0, clientPaidCents)
           return {
             id: project.project_id,
             name: project.name,
             address: project.address,
             totalSpent: centsToMoney(spentCents),
-            moneyReceived: centsToMoney(receivedCents),
-            balance: centsToMoney(spentCents - receivedCents),
-            balanceOwed: spentCents > receivedCents,
+            balance: centsToMoney(leftCents),
+            balanceOwed: leftCents > 0,
           }
         })}
       />

@@ -6,12 +6,13 @@ import { ExpenseAmountSearchBar, ExpenseSearchProvider } from "@/components/expe
 import { type SheetRow } from "@/components/expense-sheet"
 import { ClientLoginForm } from "@/components/client-login-form"
 import { ClientShell } from "@/components/client-shell"
+import { AudienceTabs, ExpenseDetailSummary } from "@/components/expense-detail-summary"
 import { MoneySummary } from "@/components/money-summary"
 import { findProjectByClientCode } from "@/lib/client-access"
 import { isClientCode } from "@/lib/client-code"
 import { getClientProjectCode } from "@/lib/client-session"
 import { formatCategory } from "@/lib/format"
-import { moneyToCents, signedExpenseAmount, sumCents } from "@/lib/money"
+import { centsToMoney, formatMoney, moneyToCents, signedExpenseAmount, sumCents, totalExpenseCents } from "@/lib/money"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
@@ -23,10 +24,14 @@ export const metadata = {
 
 export default async function ClientProjectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ code: string }>
+  searchParams: Promise<{ view?: string }>
 }) {
   const { code } = await params
+  const { view } = await searchParams
+  const detailed = view === "summary"
   if (!isClientCode(code)) notFound()
 
   const session = await getClientProjectCode()
@@ -53,7 +58,7 @@ export default async function ClientProjectPage({
 
   const project = found.project
   const admin = createAdminClient()
-  const [{ data: expenses, error: expenseError }, { data: totals, error: totalsError }, { data: payments, error: paymentError }, { data: summary, error: summaryError }] =
+  const [{ data: expenses, error: expenseError }, { data: totals, error: totalsError }, { data: payments, error: paymentError }, { data: clientPaid, error: clientPaidError }, { data: summary, error: summaryError }] =
     await Promise.all([
       admin
         .from("v_expense_rows")
@@ -61,12 +66,14 @@ export default async function ClientProjectPage({
         .eq("project_id", project.id)
         .order("expense_date", { ascending: false, nullsFirst: false }),
       admin.from("v_project_category_totals").select("*").eq("project_id", project.id).order("code"),
-      admin.from("client_payments").select("amount").eq("project_id", project.id),
-      admin.from("v_project_summary").select("total_spent").eq("project_id", project.id).maybeSingle(),
+      admin.from("client_payments").select("id, received_date, amount, note").eq("project_id", project.id).order("received_date"),
+      admin.from("client_paid_expenses").select("id, paid_date, amount, note").eq("project_id", project.id).order("paid_date", { ascending: false }),
+      admin.from("v_project_summary").select("total_spent, builder_fee_amount, client_paid_total, builder_fee_percent").eq("project_id", project.id).maybeSingle(),
     ])
   if (expenseError) throw new Error(expenseError.message)
   if (totalsError) throw new Error(totalsError.message)
   if (paymentError) throw new Error(paymentError.message)
+  if (clientPaidError) throw new Error(clientPaidError.message)
   if (summaryError) throw new Error(summaryError.message)
 
   const thumbs = (expenses ?? [])
@@ -106,6 +113,9 @@ export default async function ClientProjectPage({
     hasReceipt: Boolean(row.receipt_file_path),
     pageCount: row.page_count,
   }))
+  const billableCents = moneyToCents(summary?.total_spent ?? 0)
+  const builderFeeCents = moneyToCents(summary?.builder_fee_amount ?? 0)
+  const clientPaidCents = moneyToCents(summary?.client_paid_total ?? 0)
   const sheetCategories = (totals ?? []).map((row) => ({
     id: row.category_id,
     code: row.code,
@@ -133,10 +143,54 @@ export default async function ClientProjectPage({
           <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
           <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
         </div>
+        <div className="px-4">
+          <AudienceTabs
+            expensesHref={`/client/${code}`}
+            summaryHref={`/client/${code}?view=summary`}
+            current={detailed ? "summary" : "expenses"}
+          />
+        </div>
+        {detailed ? (
+          <div className="px-4 pb-6">
+            <ExpenseDetailSummary
+              percent={summary?.builder_fee_percent ?? 0}
+              expenses={(expenses ?? []).map((row) => ({
+                id: row.id,
+                date: row.expense_date,
+                label: row.vendor?.trim() || "Receipt",
+                category: row.category_code != null && row.category_name ? formatCategory(row.category_code, row.category_name) : "Uncategorized",
+                categorySort: row.category_code ?? 9999,
+                amountCents: moneyToCents(row.amount),
+              }))}
+              clientPaid={(clientPaid ?? []).map((entry) => ({
+                id: entry.id,
+                date: entry.paid_date,
+                label: entry.note?.trim() || "Paid by client",
+                amountCents: moneyToCents(entry.amount),
+              }))}
+              payments={(payments ?? []).map((payment) => ({
+                id: payment.id,
+                date: payment.received_date,
+                label: payment.note?.trim() || "Money received",
+                amountCents: moneyToCents(payment.amount),
+              }))}
+              billableCents={billableCents}
+              builderFeeCents={builderFeeCents}
+              clientPaidCents={clientPaidCents}
+              receivedCents={sumCents((payments ?? []).map((payment) => payment.amount))}
+              excelHref={`/api/export/${project.id}?kind=summary`}
+            />
+          </div>
+        ) : (
+        <>
         <div className="grid gap-4 px-4">
           <MoneySummary
-            spentCents={moneyToCents(summary?.total_spent ?? 0)}
+            spentCents={totalExpenseCents(billableCents, builderFeeCents)}
             receivedCents={sumCents((payments ?? []).map((payment) => payment.amount))}
+            builderFeeCents={builderFeeCents}
+            clientPaidCents={clientPaidCents}
+            builderFeePercent={summary?.builder_fee_percent}
+            breakdown={false}
           />
         </div>
         <ExpenseAmountSearchBar />
@@ -152,6 +206,25 @@ export default async function ClientProjectPage({
           mode="all"
           readOnly
         />
+        {(clientPaid ?? []).length > 0 ? (
+          <section className="mx-4 mb-6">
+            <h2 className="font-medium text-violet-950">Expense paid by client</h2>
+            <p className="mb-2 text-sm text-muted-foreground">
+              Subtracted in the balance. The builder fee still applies to these amounts.
+            </p>
+            <ul className="grid gap-2">
+              {(clientPaid ?? []).map((entry) => (
+                <li key={entry.id} className="flex items-center gap-3 rounded-xl bg-violet-50 px-4 py-3 text-sm text-violet-950">
+                  <span>{entry.paid_date}</span>
+                  <span className="font-medium tabular-nums">{formatMoney(centsToMoney(moneyToCents(entry.amount)))}</span>
+                  <span className="min-w-0 flex-1 truncate">{entry.note}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        </>
+        )}
       </ExpenseSearchProvider>
     </ClientShell>
   )

@@ -47,6 +47,15 @@ export function formatMoney(value: string | number): string {
   return `${negative ? "-" : ""}$${whole}.${fraction}`
 }
 
+/** Show 15.00 as 15 and 12.50 as 12.5. */
+export function formatFeePercent(value: string | number) {
+  const raw = String(value).trim()
+  if (!/^\d+(\.\d+)?$/.test(raw)) return raw
+  const [whole, fraction = ""] = raw.split(".")
+  const trimmed = fraction.replace(/0+$/, "")
+  return trimmed ? `${Number(whole)}.${trimmed}` : String(Number(whole))
+}
+
 /** Round `cents * percent / 100` with half-up, using integer math. */
 export function percentOfCents(cents: number, percent: string | number): number {
   if (!Number.isInteger(cents)) {
@@ -173,6 +182,16 @@ function extractedPaid(extracted: unknown): unknown {
 
 export function sumCents(values: Array<string | number>): number {
   return values.reduce<number>((total, value) => total + moneyToCents(value), 0)
+}
+
+/** Project expenses plus both builder fees. Client-paid amounts are subtracted in the balance. */
+export function totalExpenseCents(billableCents: number, builderFeeCents: number) {
+  return billableCents + builderFeeCents
+}
+
+/** Total expense, minus money received, minus amounts the client paid directly. */
+export function balanceCents(totalCents: number, receivedCents: number, clientPaidCents: number) {
+  return totalCents - receivedCents - clientPaidCents
 }
 
 /** Cents spent above the budget, or null when spending is within the budget. */

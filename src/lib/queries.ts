@@ -116,6 +116,17 @@ export async function listClientPaymentAmounts() {
   return data ?? []
 }
 
+export async function listClientPaidExpenses(projectId: string) {
+  const supabase = await requireAdmin()
+  const { data, error } = await supabase
+    .from("client_paid_expenses")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("paid_date", { ascending: false })
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
 export async function listClientPayments(projectId: string) {
   const supabase = await requireAdmin()
   const { data, error } = await supabase

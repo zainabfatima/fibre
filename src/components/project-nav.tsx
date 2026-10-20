@@ -21,11 +21,13 @@ export function ProjectNav({
   const base = `/projects/${projectId}`
   const links = [
     { key: "expenses", href: "", label: "Expenses" },
+    { key: "client", href: "/client-paid", label: "Paid by client" },
     ...(invoiceTracking
       ? [{ key: "needs", href: "?tab=needs", label: "Needs invoicing" }]
       : []),
     { key: "upload", href: "/upload", label: "Upload" },
     { key: "review", href: "/review", label: pendingReviews > 0 ? `Review (${pendingReviews})` : "Review" },
+    { key: "summary", href: "/summary", label: "Detailed summary" },
     { key: "payments", href: "/payments", label: "Money received" },
     ...(invoiceTracking ? [{ key: "invoices", href: "/invoices", label: "Invoices" }] : []),
     { key: "share", href: "/share", label: "Share" },
@@ -37,11 +39,12 @@ export function ProjectNav({
       {links.map((link) => {
         const logicalHref = `${base}${link.href}`
         const href = withZainab(logicalHref, zainab)
+        const tab = search.get("tab")
         const active =
           link.key === "needs"
-            ? pathname === base && search.get("tab") === "needs"
+            ? pathname === base && tab === "needs"
             : link.key === "expenses"
-              ? pathname === base && search.get("tab") !== "needs"
+              ? pathname === base && tab !== "needs"
               : pathname === logicalHref || pathname.startsWith(`${logicalHref}/`)
         return (
           <Link
