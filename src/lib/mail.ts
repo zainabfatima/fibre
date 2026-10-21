@@ -3,17 +3,20 @@ import "server-only"
 import { sendSmtpMail, type SmtpMessage } from "@/lib/smtp"
 
 export const ADMIN_INBOX = "admin@fibreconstruction.com"
-export const JOE_CC = "joe@fibreconstruction.com"
+export const OFFICE_CC = "joe@fibreconstruction.com"
 
-function withJoeCc(message: SmtpMessage): SmtpMessage {
-  const to = message.to.replace(/[\r\n]/g, "").trim()
-  const requested = (message.cc ?? JOE_CC).replace(/[\r\n]/g, "").trim()
+function mailbox(value: string) {
+  return value.replace(/[\r\n]/g, "").trim()
+}
+
+function withOfficeCc(message: SmtpMessage): SmtpMessage {
+  const to = mailbox(message.to)
+  const requested = mailbox(message.cc ?? OFFICE_CC)
   if (!requested || requested.toLowerCase() === to.toLowerCase()) {
     return { to, subject: message.subject, text: message.text }
   }
   return { to, subject: message.subject, text: message.text, cc: requested }
 }
-export const OFFICE_CC = "joe@fibreconstruction.com"
 
 export type MailTransport = "edge" | "smtp"
 
@@ -45,7 +48,7 @@ async function sendViaEdge(message: SmtpMessage): Promise<"sent" | "skip" | stri
 }
 
 export async function sendAppMail(message: SmtpMessage): Promise<MailTransport> {
-  const outgoing = withJoeCc(message)
+  const outgoing = withOfficeCc(message)
   const edge = await sendViaEdge(outgoing)
   if (edge === "sent") return "edge"
   try {

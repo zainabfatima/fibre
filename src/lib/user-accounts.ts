@@ -98,8 +98,13 @@ async function emailCredentials(input: {
     text: `${letter}\n\nSent to: ${input.to || "office inbox only"}`,
   })
   const recipient = input.to?.trim().toLowerCase() ?? ""
-  if (!recipient || recipient === ADMIN_INBOX) return office
-  await sendAppMail({ to: recipient, subject: input.subject.replace(/[\r\n]+/g, " "), text: letter })
+  if (!recipient || recipient === ADMIN_INBOX || recipient === OFFICE_CC) return office
+  await sendAppMail({
+    to: recipient,
+    cc: OFFICE_CC,
+    subject: input.subject.replace(/[\r\n]+/g, " "),
+    text: letter,
+  })
   return office
 }
 
