@@ -409,6 +409,72 @@ export type Database = {
         }
         Relationships: []
       }
+      app_users: {
+        Row: {
+          id: string
+          login_id: string
+          email: string | null
+          password_hash: string | null
+          password_encrypted: string | null
+          role: "admin" | "client"
+          status: "pending" | "active" | "rejected"
+          project_id: string | null
+          requested_project_name: string | null
+          requested_address: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          login_id: string
+          email?: string | null
+          password_hash?: string | null
+          password_encrypted?: string | null
+          role?: "admin" | "client"
+          status?: "pending" | "active" | "rejected"
+          project_id?: string | null
+          requested_project_name?: string | null
+          requested_address?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          login_id?: string
+          email?: string | null
+          password_hash?: string | null
+          password_encrypted?: string | null
+          role?: "admin" | "client"
+          status?: "pending" | "active" | "rejected"
+          project_id?: string | null
+          requested_project_name?: string | null
+          requested_address?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      app_sessions: {
+        Row: {
+          token: string
+          user_id: string
+          created_at: string
+          expires_at: string
+        }
+        Insert: {
+          token: string
+          user_id: string
+          created_at?: string
+          expires_at: string
+        }
+        Update: {
+          token?: string
+          user_id?: string
+          created_at?: string
+          expires_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       v_expense_rows: {

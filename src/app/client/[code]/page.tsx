@@ -1,4 +1,6 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
+
+import { clientPathForProject, getClientAccountUser } from "@/lib/app-session"
 
 import { CategoryChart } from "@/components/category-chart"
 import { CategorySheets } from "@/components/category-sheets"
@@ -34,15 +36,6 @@ export default async function ClientProjectPage({
   const detailed = view === "summary"
   if (!isClientCode(code)) notFound()
 
-  const session = await getClientProjectCode()
-  if (session !== code) {
-    return (
-      <ClientShell>
-        <ClientLoginForm />
-      </ClientShell>
-    )
-  }
-
   const found = await findProjectByClientCode(code)
   if (!found.ok) {
     const error =
@@ -57,6 +50,20 @@ export default async function ClientProjectPage({
   }
 
   const project = found.project
+  const account = await getClientAccountUser()
+  if (account?.project_id && account.project_id !== project.id) {
+    const destination = await clientPathForProject(account.project_id)
+    redirect(destination ?? "/client")
+  }
+  const session = await getClientProjectCode()
+  if (account?.project_id !== project.id && session !== code) {
+    return (
+      <ClientShell>
+        <ClientLoginForm />
+      </ClientShell>
+    )
+  }
+
   const admin = createAdminClient()
   const [{ data: expenses, error: expenseError }, { data: totals, error: totalsError }, { data: payments, error: paymentError }, { data: clientPaid, error: clientPaidError }, { data: summary, error: summaryError }] =
     await Promise.all([

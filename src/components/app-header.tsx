@@ -21,6 +21,9 @@ export function AppHeader() {
             <Link href={withZainab("/settings/categories", zainab)} className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
               Categories
             </Link>
+            <Link href={withZainab("/users", zainab)} className="rounded-lg px-2.5 py-2 text-sm font-medium text-foreground hover:bg-accent">
+              Users
+            </Link>
           </nav>
         </div>
         <SignOutButton />

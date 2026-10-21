@@ -4,7 +4,7 @@ import { isZainabPath, stripZainab } from "@/lib/zainab-path"
 import { updateSession } from "@/lib/supabase/update-session"
 
 const SESSION_COOKIE = "fibre_session"
-const PUBLIC_PREFIXES = ["/login", "/auth", "/share", "/client", "/r", "/i", "/api/export"]
+const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot", "/auth", "/share", "/client", "/r", "/i", "/api/export"]
 
 function isPublicPath(pathname: string) {
   return PUBLIC_PREFIXES.some(

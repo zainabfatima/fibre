@@ -3,9 +3,11 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 
+import { deleteSession } from "@/lib/app-session"
 import { isClientCode } from "@/lib/client-code"
 import { findProjectByClientCode } from "@/lib/client-access"
 import {
+  CLIENT_ACCOUNT_COOKIE,
   CLIENT_PROJECT_COOKIE,
   clientCookieOptions,
 } from "@/lib/client-session"
@@ -38,7 +40,12 @@ export async function signInClient(
 
 export async function signOutClient() {
   const cookieStore = await cookies()
+  await deleteSession(cookieStore.get(CLIENT_ACCOUNT_COOKIE)?.value)
   cookieStore.set(CLIENT_PROJECT_COOKIE, "", {
+    ...clientCookieOptions(),
+    maxAge: 0,
+  })
+  cookieStore.set(CLIENT_ACCOUNT_COOKIE, "", {
     ...clientCookieOptions(),
     maxAge: 0,
   })

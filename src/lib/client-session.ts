@@ -7,6 +7,9 @@ import { isClientCode } from "@/lib/client-code"
 /** Separate from the fibre admin cookie. Knowing this value is the project number. */
 export const CLIENT_PROJECT_COOKIE = "client_project"
 
+/** Credentialed client session. Limits the browser to that user's assigned project. */
+export const CLIENT_ACCOUNT_COOKIE = "client_account"
+
 export function clientCookieOptions(maxAge?: number) {
   return {
     httpOnly: true,

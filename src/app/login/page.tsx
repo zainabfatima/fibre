@@ -28,7 +28,7 @@ export default async function LoginPage({
           <BrandLogo size="login" />
           <CardTitle className="text-2xl">Project expenses</CardTitle>
           <CardDescription>
-            Enter your login ID to track receipts and invoices.
+            Enter your user ID and password. Clients open only their assigned project.
           </CardDescription>
         </CardHeader>
         <CardContent>
