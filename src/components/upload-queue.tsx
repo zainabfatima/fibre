@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { saveScannedReceipt } from "@/app/actions/expenses"
 import { ReceiptScanner } from "@/components/scanner/receipt-scanner"
 import { formatCategory } from "@/lib/format"
+import { RECEIPT_UPLOAD_ACCEPT } from "@/lib/scanner/pdf"
 import type { ScanResult } from "@/lib/scanner/types"
 import { withZainab } from "@/lib/zainab-path"
 import { useZainab } from "@/components/view-mode"
@@ -284,7 +285,7 @@ export function UploadQueue({
         >
           <p className="font-medium">Drop receipts here</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Photos are cropped, straightened, and saved as a clean black-and-white scan.
+            Photos and PDFs are cropped, straightened, and saved as a clean black-and-white scan.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <label
@@ -299,7 +300,7 @@ export function UploadQueue({
               Choose files
               <input
                 type="file"
-                accept="image/*,.heic,.heif,application/pdf"
+                accept={RECEIPT_UPLOAD_ACCEPT}
                 multiple
                 className="hidden"
                 onChange={(event) => {

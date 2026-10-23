@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 
 import { syncDuplicateFlag } from "@/lib/extract-receipt"
-import { simpleDescription } from "@/lib/simple-description"
+import { editedDescription, simpleDescription } from "@/lib/simple-description"
 import { deriveInvoiceBillingStatus } from "@/lib/labels"
 import { requireAdmin } from "@/lib/db"
 import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
@@ -661,7 +661,7 @@ export async function updateExpenseFields(input: {
   }
   if ("vendor" in input) patch.vendor = input.vendor?.trim() || null
   if ("expenseDate" in input) patch.expense_date = input.expenseDate || null
-  if ("description" in input) patch.description = simpleDescription(input.description) || null
+  if ("description" in input) patch.description = editedDescription(input.description) || null
   if ("receiptNumber" in input) patch.receipt_number = input.receiptNumber?.trim() || null
   if ("paymentMethod" in input) patch.payment_method = input.paymentMethod?.trim() || null
   if ("reimbursement" in input) patch.is_reimbursement = input.reimbursement === true

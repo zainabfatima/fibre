@@ -1,5 +1,11 @@
 import { PDFDocument } from "pdf-lib"
 
+export const RECEIPT_UPLOAD_ACCEPT = "image/*,.heic,.heif,.pdf,application/pdf"
+
+export function isPdfFile(file: File) {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+}
+
 export async function imagesToPdf(pages: Blob[]) {
   const pdf = await PDFDocument.create()
   for (const pageBlob of pages) {

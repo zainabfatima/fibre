@@ -19,3 +19,11 @@ export function simpleDescription(value: string | null | undefined) {
   }
   return text.replace(/[.,;:]+$/g, "").replace(/\s+(and|or|for|with|of|to)$/i, "").trim()
 }
+
+/** Text a person typed. Kept as written, only cleaned and length-capped. */
+export const EDITED_DESCRIPTION_MAX_CHARS = 160
+
+export function editedDescription(value: string | null | undefined) {
+  if (value == null) return ""
+  return String(value).replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, EDITED_DESCRIPTION_MAX_CHARS)
+}

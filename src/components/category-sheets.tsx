@@ -16,6 +16,7 @@ import type { SheetRow } from "@/components/expense-sheet"
 import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { formatCategory } from "@/lib/format"
 import { centsToMoney, expenseAmountInputProps, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, returnAmountClass, sumCents, amountOverBudget } from "@/lib/money"
+import { EDITED_DESCRIPTION_MAX_CHARS } from "@/lib/simple-description"
 import { useZainab } from "@/components/view-mode"
 
 type CategoryOption = { id: number; code: number; name: string; budget: string | number }
@@ -156,6 +157,12 @@ export function CategorySheets({
     else router.refresh()
   }
 
+  async function saveDescription(row: SheetRow, description: string) {
+    const result = await updateExpenseFields({ projectId, expenseId: row.id, description })
+    if (result.error) toast.error(result.error)
+    else router.refresh()
+  }
+
   async function confirmNotDuplicate(row: SheetRow) {
     const result = await clearDuplicate(projectId, row.id)
     if (result.error) toast.error(result.error)
@@ -197,6 +204,7 @@ export function CategorySheets({
           onReimbursement={saveReimbursement}
           onReimbursementNote={saveReimbursementNote}
           onQuickBooks={saveQuickBooks}
+          onDescription={saveDescription}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
           onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
@@ -226,6 +234,7 @@ export function CategorySheets({
           onReimbursement={saveReimbursement}
           onReimbursementNote={saveReimbursementNote}
           onQuickBooks={saveQuickBooks}
+          onDescription={saveDescription}
           onDelete={removeReceipt}
           onConfirmDuplicate={confirmNotDuplicate}
           onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
@@ -357,6 +366,46 @@ function AmountInput({
   )
 }
 
+function DescriptionInput({
+  row,
+  readOnly,
+  onDescription,
+  className,
+}: {
+  row: SheetRow
+  readOnly: boolean
+  onDescription: (row: SheetRow, description: string) => void
+  className?: string
+}) {
+  if (readOnly) {
+    return (
+      <span className="block max-w-48 truncate" title={row.description ?? undefined}>
+        {row.description || "—"}
+      </span>
+    )
+  }
+  return (
+    <input
+      key={`${row.id}:${row.description ?? ""}`}
+      defaultValue={row.description ?? ""}
+      maxLength={EDITED_DESCRIPTION_MAX_CHARS}
+      placeholder="What was bought"
+      aria-label={`Description for ${row.vendor || "receipt"}`}
+      onBlur={(event) => {
+        const next = event.target.value.replace(/\s+/g, " ").trim()
+        if (next === (row.description ?? "")) return
+        onDescription(row, next)
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return
+        event.preventDefault()
+        event.currentTarget.blur()
+      }}
+      className={className ?? "h-9 w-full min-w-36 rounded-lg border border-input bg-transparent px-2 text-sm"}
+    />
+  )
+}
+
 function YesNoSelect({
   value,
   label,
@@ -433,6 +482,7 @@ function CategoryBlock({
   onReimbursement,
   onReimbursementNote,
   onQuickBooks,
+  onDescription,
   onDelete,
   onConfirmDuplicate,
   onConfirmReturn,
@@ -460,6 +510,7 @@ function CategoryBlock({
   onReimbursement: (row: SheetRow, reimbursement: boolean) => void
   onReimbursementNote: (row: SheetRow, note: string) => void
   onQuickBooks: (row: SheetRow, inQuickBooks: boolean) => void
+  onDescription: (row: SheetRow, description: string) => void
   onDelete: (row: SheetRow) => void
   onConfirmDuplicate: (row: SheetRow) => void
   onConfirmReturn: (row: SheetRow) => void
@@ -554,12 +605,19 @@ function CategoryBlock({
                     />
                   </div>
                   <p className="mt-0.5 text-sm text-muted-foreground">{row.date || "No date"}</p>
-                  {row.description ? (
-                    <p className="mt-1 line-clamp-2 text-sm leading-snug break-words">
-                      <span className="sr-only">Description: </span>
-                      {row.description}
-                    </p>
-                  ) : null}
+                  {readOnly ? (
+                    row.description ? (
+                      <p className="mt-1 line-clamp-2 text-sm leading-snug break-words">
+                        <span className="sr-only">Description: </span>
+                        {row.description}
+                      </p>
+                    ) : null
+                  ) : (
+                    <label className="mt-2 grid gap-1 text-sm">
+                      <span className="text-muted-foreground">Description</span>
+                      <DescriptionInput row={row} readOnly={false} onDescription={onDescription} />
+                    </label>
+                  )}
                   {invoiceTracking ? (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="text-sm">{row.invoiceNumber ? `Invoice ${row.invoiceNumber}` : "No invoice"}</span>
@@ -658,7 +716,7 @@ function CategoryBlock({
                           <input
                             name="file"
                             type="file"
-                            accept="image/*,application/pdf"
+                            accept="image/*,.pdf,application/pdf"
                             aria-label={`Upload invoice ${row.invoiceNumber ?? ""}`}
                             className="w-full text-base"
                             onChange={(event) => {
@@ -761,9 +819,7 @@ function CategoryBlock({
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
                   <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
                   <td className="px-3 py-2">
-                    <span className="block max-w-48 truncate" title={row.description ?? undefined}>
-                      {row.description || "—"}
-                    </span>
+                    <DescriptionInput row={row} readOnly={readOnly} onDescription={onDescription} />
                   </td>
                   <td className="px-3 py-2">
                     <AmountInput
@@ -878,7 +934,7 @@ function CategoryBlock({
                             <input
                               name="file"
                               type="file"
-                              accept="image/*,application/pdf"
+                              accept="image/*,.pdf,application/pdf"
                               aria-label={`Upload invoice ${row.invoiceNumber ?? ""}`}
                               className="max-w-36 text-xs"
                               onChange={(event) => {

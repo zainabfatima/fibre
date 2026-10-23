@@ -76,7 +76,7 @@ export default async function InvoiceDetailPage({
           <input type="hidden" name="invoiceId" value={invoice.id} />
           <input type="hidden" name="projectId" value={id} />
           <Label htmlFor="invoice-file">Invoice image or PDF</Label>
-          <input id="invoice-file" name="file" type="file" accept="image/*,application/pdf" />
+          <input id="invoice-file" name="file" type="file" accept="image/*,.pdf,application/pdf" />
           <Button type="submit" variant="outline">
             Upload file
           </Button>

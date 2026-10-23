@@ -22,7 +22,7 @@ import {
 } from "@/lib/receiptCrop"
 import { sha256 } from "@/lib/scanner/hash"
 import { checksFor } from "@/lib/scanner/image"
-import { imagesToPdf, renderPdf } from "@/lib/scanner/pdf"
+import { imagesToPdf, isPdfFile, RECEIPT_UPLOAD_ACCEPT, renderPdf } from "@/lib/scanner/pdf"
 import type { CaptureType, PageChecks, ScanResult } from "@/lib/scanner/types"
 
 type Choice = "auto" | "manual" | "original"
@@ -186,16 +186,26 @@ export function ReceiptScanner({
 
   async function acceptFiles(files: File[]) {
     if (files.length === 0) return
-    const pdf = files.find((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))
-    if (pdf && files.length === 1) {
-      setStatus("Reading the PDF")
-      const rendered = await renderPdf(pdf)
-      for (const page of rendered.pages) await addBlob(page.blob, page.blob)
+    const chosen = files.slice(0, 20)
+    if (chosen.length > 1) setBatchChoice(true)
+    if (chosen.some(isPdfFile)) setStatus("Reading the PDF")
+    try {
+      const images: Blob[] = []
+      for (const file of chosen) {
+        if (!isPdfFile(file)) {
+          images.push(file)
+          continue
+        }
+        const rendered = await renderPdf(file)
+        if (rendered.pages.length === 0) throw new Error("This PDF has no pages")
+        for (const page of rendered.pages) images.push(page.blob)
+      }
+      for (const image of images.slice(0, 20)) await addBlob(image)
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : "This PDF could not be opened")
+    } finally {
       setStatus(null)
-      return
     }
-    if (files.length > 1) setBatchChoice(true)
-    for (const file of files.slice(0, 20)) await addBlob(file)
   }
 
   const managed: ManagedPage[] = useMemo(
@@ -301,6 +311,7 @@ export function ReceiptScanner({
         </button>
       </div>
       {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
+      {!editing && note ? <p className="text-sm text-destructive">{note}</p> : null}
       {camera ? (
         <CameraCapture
           pageNumber={pages.length + 1}
@@ -385,7 +396,7 @@ export function ReceiptScanner({
               Upload
               <input
                 type="file"
-                accept="image/*,.heic,.heif,application/pdf"
+                accept={RECEIPT_UPLOAD_ACCEPT}
                 multiple
                 className="hidden"
                 onChange={(event) => {
