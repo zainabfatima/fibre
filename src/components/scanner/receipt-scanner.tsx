@@ -10,8 +10,10 @@ import {
   cornersNear,
   cropReceipt,
   decodeReceiptFile,
+  decodeReceiptWithImage,
   fullFrameCorners,
   loadOpenCv,
+  methodForAcceptedCrop,
   rasterToDataUrl,
   rasterToJpegBlob,
   renderCrop,
@@ -124,7 +126,7 @@ export function ReceiptScanner({
     setStatus(framed ? "Cropping the frame" : "Finding the receipt")
     try {
       const hash = await sha256(hashBlob)
-      const source = await decodeReceiptFile(blob)
+      const source = await decodeReceiptFile(blob).catch(() => decodeReceiptWithImage(blob))
       const detected = framed
         ? {
             corners: fullFrameCorners(source.width, source.height),
@@ -349,7 +351,19 @@ export function ReceiptScanner({
             )
           }}
           onUseCrop={() => {
-            const next = paintPage({ ...editing, choice: pageMethod(editing) === "none" ? "original" : editing.choice })
+            const accepted = methodForAcceptedCrop({
+              autoMethod: pageMethod(editing),
+              moved: editing.choice === "manual",
+              corners: editing.corners,
+            })
+            if (!accepted) {
+              setNote("Drag the four corners onto the receipt, or use the original photo.")
+              return
+            }
+            const next = paintPage({
+              ...editing,
+              choice: accepted === "manual" ? "manual" : editing.choice,
+            })
             setPages((current) => current.map((page) => (page.id === editing.id ? next : page)))
             setEditingId(null)
           }}

@@ -154,7 +154,7 @@ export function ReceiptCropper({
       <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
         {needsManualCrop ? (
           <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950" role="status">
-            The paper edges were not clear. Drag the four corners onto the receipt, or use the original photo.
+            The paper edges were not clear. Drag the four corners if you need to, or use the crop as it is.
           </p>
         ) : (
           <p className="mb-3 text-sm text-muted-foreground">

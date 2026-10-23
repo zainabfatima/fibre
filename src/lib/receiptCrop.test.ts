@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
 import { parseSignedAmount } from "./money.ts"
-import { cropReceipt, pointInPolygon, type Point, type Raster } from "./receiptCrop.ts"
+import { cropReceipt, fullFrameCorners, methodForAcceptedCrop, pointInPolygon, type Point, type Raster } from "./receiptCrop.ts"
 
 type Rgb = [number, number, number]
 
@@ -281,6 +281,16 @@ describe("receipt crop", () => {
       ],
       "crumpled",
     )
+  })
+
+  it("lets a full-frame outline be cropped when no paper is found", () => {
+    const corners = fullFrameCorners(360, 280)
+    assert.equal(methodForAcceptedCrop({ autoMethod: "none", moved: false, corners }), "manual")
+    const moved = corners.map((point, index) => (index === 2 ? { x: point.x - 20, y: point.y - 16 } : point))
+    assert.equal(methodForAcceptedCrop({ autoMethod: "none", moved: true, corners: moved }), "manual")
+    assert.equal(methodForAcceptedCrop({ autoMethod: "auto", moved: false, corners }), "auto")
+    assert.equal(methodForAcceptedCrop({ autoMethod: "fallback", moved: false, corners }), "fallback")
+    assert.equal(methodForAcceptedCrop({ autoMethod: "none", moved: false, corners: [{ x: 0, y: 0 }] }), null)
   })
 
   it("keeps the original when no paper is confident", async () => {

@@ -8,8 +8,10 @@ import { ReceiptCropper } from "@/components/ReceiptCropper"
 import {
   cropReceipt,
   decodeReceiptFile,
+  decodeReceiptWithImage,
   fullFrameCorners,
   loadOpenCv,
+  methodForAcceptedCrop,
   rasterToJpegBlob,
   renderCrop,
   rotateRaster,
@@ -35,17 +37,47 @@ type Accepted = {
   image: Raster | null
 }
 
-function resolveMethod(page: LoadedPage): CropMethod {
-  if (page.moved) return "manual"
-  if (page.autoMethod === "none") return "none"
-  return page.autoMethod
-}
-
 function combinedMethod(methods: CropMethod[]): CropMethod {
   if (methods.includes("manual")) return "manual"
   if (methods.includes("none")) return "none"
   if (methods.includes("fallback")) return "fallback"
   return "auto"
+}
+
+async function looksLikePdf(file: Blob) {
+  const bytes = new Uint8Array(await file.slice(0, 5).arrayBuffer())
+  return bytes.length >= 4 && String.fromCharCode(...bytes).startsWith("%PDF")
+}
+
+async function rasterFromImage(file: Blob) {
+  try {
+    return await decodeReceiptFile(file)
+  } catch {
+    return decodeReceiptWithImage(file)
+  }
+}
+
+async function rastersForReceipt(blob: Blob, type: string) {
+  const pdfHint = type.includes("pdf") || (await looksLikePdf(blob))
+  if (!pdfHint) {
+    try {
+      const raster = await decodeReceiptFile(blob)
+      if (raster.width >= 2 && raster.height >= 2) return { rasters: [raster], fromPdf: false }
+    } catch (cause) {
+      if (cause instanceof Error && cause.message.includes("HEIC")) throw cause
+    }
+  }
+  try {
+    const rendered = await renderPdf(blob, { maxLongSide: 2400 })
+    const rasters: Raster[] = []
+    for (const page of rendered.pages) rasters.push(await rasterFromImage(page.blob))
+    if (rasters.length > 0) return { rasters, fromPdf: true }
+  } catch {
+    // Not a PDF, or this PDF could not be drawn. The canvas decoder is next.
+  }
+  const raster = await decodeReceiptWithImage(blob)
+  if (raster.width < 2 || raster.height < 2) throw new Error("Could not open the receipt")
+  return { rasters: [raster], fromPdf: false }
 }
 
 async function thumbnailBlob(raster: Raster) {
@@ -122,14 +154,15 @@ export function ReceiptRecrop({
         if (!response.ok) throw new Error("Could not open the receipt")
         const blob = await response.blob()
         const type = `${response.headers.get("content-type") ?? ""} ${blob.type}`.toLowerCase()
-        const sources = type.includes("pdf")
-          ? (await renderPdf(blob, { maxLongSide: 2400 })).pages.map((item) => item.blob)
-          : [blob]
+        const opened = await rastersForReceipt(blob, type)
         const loaded: LoadedPage[] = []
-        for (const sourceBlob of sources) {
+        for (const source of opened.rasters) {
           if (cancelled) return
-          const source = await decodeReceiptFile(sourceBlob)
-          const detected = await cropReceipt(source)
+          const detected = await cropReceipt(source).catch(() => ({
+            corners: fullFrameCorners(source.width, source.height),
+            method: "none" as const,
+            confidence: 0,
+          }))
           loaded.push({
             source,
             corners: detected.corners,
@@ -141,7 +174,7 @@ export function ReceiptRecrop({
         }
         if (cancelled) return
         if (loaded.length === 0) throw new Error("Could not open the receipt")
-        setSourceIsPdf(type.includes("pdf"))
+        setSourceIsPdf(opened.fromPdf)
         setPages(loaded)
         setAccepted(loaded.map(() => null))
       } catch (cause) {
@@ -186,8 +219,10 @@ export function ReceiptRecrop({
 
   async function commit(choice: "crop" | "original") {
     if (!page || lockRef.current) return
-    const method = choice === "original" ? "none" : resolveMethod(page)
-    if (choice === "crop" && method === "none") {
+    const method = choice === "original"
+      ? "none"
+      : methodForAcceptedCrop({ autoMethod: page.autoMethod, moved: page.moved, corners: page.corners })
+    if (!method) {
       setNote("Drag the four corners onto the receipt, or use the original photo.")
       return
     }

@@ -114,6 +114,17 @@ export function cornersAreUsable(corners: Point[]) {
   return isConvex(orderCorners(corners))
 }
 
+/** A full-frame or dragged outline can be saved even when auto-detect found no paper. */
+export function methodForAcceptedCrop(input: {
+  autoMethod: CropMethod
+  moved: boolean
+  corners: Point[]
+}): CropMethod | null {
+  if (!cornersAreUsable(input.corners)) return null
+  if (input.moved || input.autoMethod === "none") return "manual"
+  return input.autoMethod
+}
+
 export async function loadOpenCv(timeoutMs = 8000): Promise<CvApi | null> {
   if (typeof window === "undefined") return null
   const ready = readOpenCv()
@@ -167,43 +178,86 @@ export async function cropReceiptFile(file: Blob): Promise<CropResult> {
   return { ...cropped, blob }
 }
 
+const HEIC_BRANDS = new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "heif", "mif1", "msf1"])
+
+async function looksLikeHeic(file: Blob) {
+  const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  if (bytes.length < 12) return false
+  const box = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])
+  const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11])
+  return box === "ftyp" && HEIC_BRANDS.has(brand)
+}
+
+async function maybeConvertHeic(file: Blob) {
+  const name = file instanceof File ? file.name.toLowerCase() : ""
+  const type = file.type.toLowerCase()
+  const hinted = name.endsWith(".heic") || name.endsWith(".heif") || type.includes("heic") || type.includes("heif")
+  if (!hinted && !(await looksLikeHeic(file))) return file
+  try {
+    const heic2any = (await import("heic2any")).default
+    const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 })
+    return Array.isArray(converted) ? converted[0] : converted
+  } catch {
+    if (hinted) throw new Error("This HEIC photo could not be read. Export it as a JPEG and try again.")
+    return file
+  }
+}
+
+function rasterFromDrawable(source: CanvasImageSource, sourceWidth: number, sourceHeight: number): Raster {
+  if (sourceWidth < 2 || sourceHeight < 2) throw new Error("Could not open the receipt")
+  const scale = Math.min(1, DECODE_LONG_SIDE / Math.max(sourceWidth, sourceHeight))
+  const width = Math.max(1, Math.round(sourceWidth * scale))
+  const height = Math.max(1, Math.round(sourceHeight * scale))
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext("2d", { willReadFrequently: true })
+  if (!context) throw new Error("Could not open the receipt")
+  context.drawImage(source, 0, 0, width, height)
+  const image = context.getImageData(0, 0, width, height)
+  if (image.data.length < width * height * 4) throw new Error("Could not open the receipt")
+  return { width, height, data: image.data }
+}
+
 export async function decodeReceiptFile(file: Blob): Promise<Raster> {
   if (typeof createImageBitmap !== "function") {
     throw new Error("This browser cannot read the photo")
   }
-  let blob = file
-  const name = file instanceof File ? file.name.toLowerCase() : ""
-  const type = file.type.toLowerCase()
-  if (name.endsWith(".heic") || name.endsWith(".heif") || type.includes("heic") || type.includes("heif")) {
-    try {
-      const heic2any = (await import("heic2any")).default
-      const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.92 })
-      blob = Array.isArray(converted) ? converted[0] : converted
-    } catch {
-      throw new Error("This HEIC photo could not be read. Export it as a JPEG and try again.")
-    }
-  }
+  const blob = await maybeConvertHeic(file)
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(blob)
   } catch {
     throw new Error("This photo could not be opened")
   }
-  const scale = Math.min(1, DECODE_LONG_SIDE / Math.max(bitmap.width, bitmap.height))
-  const width = Math.max(1, Math.round(bitmap.width * scale))
-  const height = Math.max(1, Math.round(bitmap.height * scale))
-  const canvas = document.createElement("canvas")
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext("2d", { willReadFrequently: true })
-  if (!context) {
+  try {
+    return rasterFromDrawable(bitmap, bitmap.width, bitmap.height)
+  } finally {
     bitmap.close()
-    throw new Error("This photo could not be opened")
   }
-  context.drawImage(bitmap, 0, 0, width, height)
-  bitmap.close()
-  const image = context.getImageData(0, 0, width, height)
-  return { width, height, data: image.data }
+}
+
+/** Last resort when createImageBitmap rejects a JPEG, PNG, or WebP. */
+export function decodeReceiptWithImage(file: Blob): Promise<Raster> {
+  if (typeof document === "undefined") return Promise.reject(new Error("Could not open the receipt"))
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const image = new Image()
+    const finish = () => URL.revokeObjectURL(url)
+    image.onload = () => {
+      finish()
+      try {
+        resolve(rasterFromDrawable(image, image.naturalWidth, image.naturalHeight))
+      } catch (cause) {
+        reject(cause instanceof Error ? cause : new Error("Could not open the receipt"))
+      }
+    }
+    image.onerror = () => {
+      finish()
+      reject(new Error("Could not open the receipt"))
+    }
+    image.src = url
+  })
 }
 
 export async function rasterToJpegBlob(raster: Raster, quality = 0.85) {
