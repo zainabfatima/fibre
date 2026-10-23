@@ -47,6 +47,8 @@ export type SheetRow = {
   paymentMethod: string | null
   cardLast4: string | null
   duplicateOf: string | null
+  duplicateConfirmed?: boolean
+  splitGroupId?: string | null
   returnConfirmed: boolean
   thumbUrl: string | null
   invoiceId: string | null

@@ -3,7 +3,7 @@ import "server-only"
 import Anthropic from "@anthropic-ai/sdk"
 import { revalidatePath } from "next/cache"
 
-import { duplicateIdentityKey } from "@/lib/duplicates"
+import { planDuplicateLinks, type DuplicateLinkRow } from "@/lib/duplicates"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { centsToMoney, moneyToCents, parseSignedAmount } from "@/lib/money"
 import {
@@ -425,123 +425,76 @@ export async function scanAllReceiptIdentities(
   return { scanned: pending.length - failed, failed, flagged }
 }
 
+const duplicateColumns =
+  "id, project_id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id, duplicate_of, duplicate_confirmed, created_at" as const
+
+function storedDuplicateRow(row: {
+  id: string
+  project_id: string
+  amount: string | number
+  expense_date: string | null
+  receipt_time: string | null
+  receipt_number: string | null
+  payment_method: string | null
+  card_last4: string | null
+  split_group_id: string | null
+  duplicate_confirmed: boolean
+  created_at: string
+}): DuplicateLinkRow {
+  let amountCents = 0
+  try {
+    amountCents = moneyToCents(row.amount)
+  } catch {
+    amountCents = 0
+  }
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    amountCents,
+    expenseDate: row.expense_date,
+    receiptNumber: row.receipt_number,
+    receiptTime: row.receipt_time,
+    paymentMethod: row.payment_method,
+    cardLast4: row.card_last4,
+    splitGroupId: row.split_group_id,
+    duplicateConfirmed: row.duplicate_confirmed,
+    createdAt: row.created_at,
+  }
+}
+
+async function writeDuplicateLinks(
+  supabase: ReturnType<typeof createAdminClient>,
+  rows: Array<{ id: string; duplicate_of: string | null } & Parameters<typeof storedDuplicateRow>[0]>,
+) {
+  const planned = planDuplicateLinks(rows.map(storedDuplicateRow))
+  let flagged = 0
+  for (const row of rows) {
+    const next = planned.get(row.id) ?? null
+    if ((row.duplicate_of ?? null) === next) continue
+    const { error } = await supabase.from("expenses").update({ duplicate_of: next }).eq("id", row.id)
+    if (error) return { error: error.message, flagged }
+    if (next) flagged += 1
+  }
+  return { error: null, flagged }
+}
+
 export async function flagAllDuplicateReceipts() {
   const supabase = createAdminClient()
-  const { data: rows, error } = await supabase
-    .from("expenses")
-    .select("id, project_id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id, duplicate_of, duplicate_confirmed, created_at")
-    .order("created_at")
+  const { data: rows, error } = await supabase.from("expenses").select(duplicateColumns).order("created_at")
   if (error) throw new Error(error.message)
-
-  const groups = new Map<string, NonNullable<typeof rows>>()
-  const clear = new Set<string>()
-  for (const row of rows ?? []) {
-    let key: string | null = null
-    try {
-      key = duplicateIdentityKey({
-        receiptNumber: row.receipt_number,
-        expenseDate: row.expense_date,
-        receiptTime: row.receipt_time,
-        amountCents: moneyToCents(row.amount),
-        paymentMethod: row.payment_method,
-        cardLast4: row.card_last4,
-      })
-    } catch {
-      key = null
-    }
-    if (!key) {
-      if (row.duplicate_of && !row.duplicate_confirmed) clear.add(row.id)
-      continue
-    }
-    const bucket = groups.get(`${row.project_id}|${key}`) ?? []
-    bucket.push(row)
-    groups.set(`${row.project_id}|${key}`, bucket)
-  }
-
-  const pointAt = new Map<string, string>()
-  for (const bucket of groups.values()) {
-    if (bucket.length < 2) {
-      for (const row of bucket) {
-        if (row.duplicate_of && !row.duplicate_confirmed) clear.add(row.id)
-      }
-      continue
-    }
-    const [canonical, ...rest] = bucket
-    if (!canonical) continue
-    if (canonical.duplicate_of && !canonical.duplicate_confirmed) clear.add(canonical.id)
-    for (const other of rest) {
-      if (other.duplicate_confirmed) continue
-      if (canonical.split_group_id && other.split_group_id === canonical.split_group_id) {
-        if (other.duplicate_of) clear.add(other.id)
-        continue
-      }
-      pointAt.set(other.id, canonical.id)
-      clear.delete(other.id)
-    }
-  }
-
-  let flagged = 0
-  for (const [id, duplicateOf] of pointAt) {
-    const { error: updateError } = await supabase
-      .from("expenses")
-      .update({ duplicate_of: duplicateOf })
-      .eq("id", id)
-    if (updateError) throw new Error(updateError.message)
-    flagged += 1
-  }
-  for (const id of clear) {
-    if (pointAt.has(id)) continue
-    const { error: updateError } = await supabase.from("expenses").update({ duplicate_of: null }).eq("id", id)
-    if (updateError) throw new Error(updateError.message)
-  }
-  return flagged
+  const written = await writeDuplicateLinks(supabase, rows ?? [])
+  if (written.error) throw new Error(written.error)
+  return written.flagged
 }
 
 export async function syncDuplicateFlag(projectId: string, expenseId: string) {
   const supabase = createAdminClient()
-  const { data: current } = await supabase
+  const { data: rows, error } = await supabase
     .from("expenses")
-    .select("id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id, duplicate_confirmed")
-    .eq("id", expenseId)
-    .maybeSingle()
-  if (!current || current.duplicate_confirmed) return
-
-  const currentKey = duplicateIdentityKey({
-    receiptNumber: current.receipt_number,
-    expenseDate: current.expense_date,
-    receiptTime: current.receipt_time,
-    amountCents: moneyToCents(current.amount),
-    paymentMethod: current.payment_method,
-    cardLast4: current.card_last4,
-  })
-  if (!currentKey) {
-    await supabase.from("expenses").update({ duplicate_of: null }).eq("id", expenseId)
-    return
-  }
-
-  const { data: candidates } = await supabase
-    .from("expenses")
-    .select("id, amount, expense_date, receipt_time, receipt_number, payment_method, card_last4, split_group_id")
+    .select(duplicateColumns)
     .eq("project_id", projectId)
-    .neq("id", expenseId)
-
-  const match = (candidates ?? []).find((other) => {
-    if (current.split_group_id && other.split_group_id === current.split_group_id) return false
-    const otherKey = duplicateIdentityKey({
-      receiptNumber: other.receipt_number,
-      expenseDate: other.expense_date,
-      receiptTime: other.receipt_time,
-      amountCents: moneyToCents(other.amount),
-      paymentMethod: other.payment_method,
-      cardLast4: other.card_last4,
-    })
-    return otherKey != null && otherKey === currentKey
-  })
-
-  await supabase
-    .from("expenses")
-    .update({ duplicate_of: match?.id ?? null })
-    .eq("id", expenseId)
+  if (error || !rows?.some((row) => row.id === expenseId)) return
+  await writeDuplicateLinks(supabase, rows)
 }
 
 export async function readInvoiceDocumentTotal(invoiceId: string) {

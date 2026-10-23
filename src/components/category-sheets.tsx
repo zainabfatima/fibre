@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
 import { formatCategory } from "@/lib/format"
+import { duplicatePartners, isPossibleDuplicate } from "@/lib/duplicates"
 import { centsToMoney, expenseAmountInputProps, formatMoney, moneyToCents, needsReturnConfirmation, parseMoneyInput, returnAmountClass, sumCents, amountOverBudget } from "@/lib/money"
 import { EDITED_DESCRIPTION_MAX_CHARS } from "@/lib/simple-description"
 import { useZainab } from "@/components/view-mode"
@@ -25,6 +26,7 @@ export function CategorySheets({
   projectId,
   categories,
   rows,
+  duplicateRows,
   invoiceTracking,
   mode,
   readOnly = false,
@@ -32,6 +34,7 @@ export function CategorySheets({
   projectId: string
   categories: CategoryOption[]
   rows: SheetRow[]
+  duplicateRows?: SheetRow[]
   invoiceTracking: boolean
   mode: "all" | "needs"
   readOnly?: boolean
@@ -42,7 +45,10 @@ export function CategorySheets({
   const [cropping, setCropping] = useState(false)
   const [returnPrompt, setReturnPrompt] = useState<{ row: SheetRow; amount: string } | null>(null)
   const [amountReset, setAmountReset] = useState(0)
-  const scoped = rows.filter((row) => mode !== "needs" || row.invoiceStatus === "not_invoiced")
+  const [clearedDuplicateIds, setClearedDuplicateIds] = useState<string[]>([])
+  const shownRows = withConfirmed(rows, clearedDuplicateIds)
+  const matchRows = withConfirmed(duplicateRows ?? rows, clearedDuplicateIds)
+  const scoped = shownRows.filter((row) => mode !== "needs" || row.invoiceStatus === "not_invoiced")
   const sections = categories.map((category) => ({
     category,
     rows: scoped.filter((row) => row.categoryId === category.id),
@@ -164,12 +170,15 @@ export function CategorySheets({
   }
 
   async function confirmNotDuplicate(row: SheetRow) {
+    setClearedDuplicateIds((current) => (current.includes(row.id) ? current : [...current, row.id]))
     const result = await clearDuplicate(projectId, row.id)
-    if (result.error) toast.error(result.error)
-    else {
+    if (result.error) {
+      setClearedDuplicateIds((current) => current.filter((id) => id !== row.id))
+      toast.error(result.error)
+    } else {
       toast.success("Marked as not a duplicate")
-      router.refresh()
     }
+    router.refresh()
   }
 
   async function removeReceipt(row: SheetRow) {
@@ -210,7 +219,7 @@ export function CategorySheets({
           onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
           onCorrectReturn={(row) => declineReturn(row, true)}
           amountReset={amountReset}
-          allRows={rows}
+          allRows={matchRows}
           readOnly={readOnly}
         />
       ))}
@@ -240,7 +249,7 @@ export function CategorySheets({
           onConfirmReturn={(row) => void confirmStoredReturn(row, row.amount)}
           onCorrectReturn={(row) => declineReturn(row, true)}
           amountReset={amountReset}
-          allRows={rows}
+          allRows={matchRows}
           readOnly={readOnly}
         />
       ) : null}
@@ -562,7 +571,6 @@ function CategoryBlock({
             >
               {!readOnly && isDuplicatePair(row, allRows) ? (
                 <DuplicateNotice
-                  row={row}
                   others={pairedReceipts(row, allRows)}
                   onConfirm={() => onConfirmDuplicate(row)}
                   onPreview={onPreview}
@@ -792,7 +800,6 @@ function CategoryBlock({
                   <tr className="bg-red-50 dark:bg-red-950/40">
                     <td colSpan={tableColumns} className="px-3 py-2">
                       <DuplicateNotice
-                        row={row}
                         others={pairedReceipts(row, allRows)}
                         onConfirm={() => onConfirmDuplicate(row)}
                         onPreview={onPreview}
@@ -1017,16 +1024,20 @@ function rowSurface(duplicate: boolean, matched: boolean, active: boolean) {
   return expenseHighlight(matched, active)
 }
 
+function withConfirmed(list: SheetRow[], clearedIds: string[]) {
+  if (clearedIds.length === 0) return list
+  const cleared = new Set(clearedIds)
+  return list.map((row) =>
+    cleared.has(row.id) ? { ...row, duplicateConfirmed: true, duplicateOf: null } : row,
+  )
+}
+
 function pairedReceipts(row: SheetRow, allRows: SheetRow[]) {
-  if (row.duplicateOf) {
-    const match = allRows.find((item) => item.id === row.duplicateOf)
-    return match ? [match] : []
-  }
-  return allRows.filter((item) => item.duplicateOf === row.id)
+  return duplicatePartners(row, allRows)
 }
 
 function isDuplicatePair(row: SheetRow, allRows: SheetRow[]) {
-  return Boolean(row.duplicateOf) || pairedReceipts(row, allRows).length > 0
+  return isPossibleDuplicate(row, allRows)
 }
 
 function showReceiptInList(id: string) {
@@ -1036,54 +1047,48 @@ function showReceiptInList(id: string) {
 }
 
 function DuplicateNotice({
-  row,
   others,
   onConfirm,
   onPreview,
   onDelete,
 }: {
-  row: SheetRow
   others: SheetRow[]
   onConfirm: () => void
   onPreview: (row: SheetRow) => void
   onDelete: (row: SheetRow) => void
 }) {
-  const isCopy = Boolean(row.duplicateOf)
   return (
     <div className="mb-3 grid gap-3 rounded-lg bg-red-100 p-3 text-sm text-red-950 dark:bg-red-950 dark:text-red-50 md:mb-0">
       <div>
         <p className="font-medium">Possible duplicate</p>
         <p>
-          {isCopy
-            ? "This receipt matches the other copy below. Compare them, then delete the extra one."
-            : "Another receipt matches this one. Compare them, then delete the extra copy."}
+          Another expense on this project has the same amount and date. Compare the receipts, then delete the extra
+          one, or confirm this is not a duplicate.
         </p>
       </div>
       {others.length === 0 ? <p>The other copy is no longer in this project.</p> : null}
       {others.map((other) => (
         <OtherReceipt key={other.id} row={other} onPreview={onPreview} onDelete={onDelete} />
       ))}
-      {isCopy ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
-          >
-            Not a duplicate
-          </button>
-          <label className="inline-flex min-h-11 items-center gap-2">
-            <input
-              type="checkbox"
-              onChange={(event) => {
-                if (event.target.checked) onConfirm()
-              }}
-              className="size-5"
-            />
-            Confirmed
-          </label>
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
+        >
+          Not a duplicate
+        </button>
+        <label className="inline-flex min-h-11 items-center gap-2">
+          <input
+            type="checkbox"
+            onChange={(event) => {
+              if (event.target.checked) onConfirm()
+            }}
+            className="size-5"
+          />
+          Confirmed
+        </label>
+      </div>
     </div>
   )
 }

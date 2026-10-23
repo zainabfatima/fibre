@@ -686,7 +686,7 @@ export async function updateExpenseFields(input: {
 
   const { error } = await supabase.from("expenses").update(patch).eq("id", input.expenseId)
   if (error) return { error: error.message }
-  if (input.amount != null) await syncDuplicateFlag(input.projectId, input.expenseId)
+  if (input.amount != null || "expenseDate" in input) await syncDuplicateFlag(input.projectId, input.expenseId)
   refresh(input.projectId)
   return { error: null }
 }
@@ -716,11 +716,21 @@ export async function confirmReturn(projectId: string, expenseId: string, amount
 
 export async function clearDuplicate(projectId: string, expenseId: string) {
   const supabase = await requireAdmin()
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("expenses")
     .update({ duplicate_of: null, duplicate_confirmed: true })
     .eq("id", expenseId)
+    .eq("project_id", projectId)
+    .select("id")
   if (error) return { error: error.message }
+  if (!data?.length) return { error: "Expense not found" }
+  const { error: unlinkError } = await supabase
+    .from("expenses")
+    .update({ duplicate_of: null })
+    .eq("project_id", projectId)
+    .eq("duplicate_of", expenseId)
+  if (unlinkError) return { error: unlinkError.message }
+  await syncDuplicateFlag(projectId, expenseId)
   refresh(projectId)
   return { error: null }
 }
@@ -828,6 +838,7 @@ export async function saveSplit(input: {
   }))
   const { error: insertError } = await supabase.from("expenses").insert(inserts)
   if (insertError) return { error: insertError.message }
+  await syncDuplicateFlag(input.projectId, input.expenseId)
   refresh(input.projectId)
   return { error: null }
 }

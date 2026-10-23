@@ -2,7 +2,8 @@ import { notFound } from "next/navigation"
 
 import { ReviewScreen } from "@/components/review-screen"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { centsToMoney, moneyToCents, parseSignedAmount } from "@/lib/money"
+import { duplicatePartners } from "@/lib/duplicates"
+import { centsToMoney, moneyToCents, parseSignedAmount, signedExpenseAmount } from "@/lib/money"
 import { listCategories, listExpenseRows } from "@/lib/queries"
 import type { Json } from "@/types/database"
 
@@ -55,9 +56,21 @@ export default async function ReviewPage({
     )
   }
   const admin = createAdminClient()
-  const duplicate = current.duplicate_of
-    ? rows.find((row) => row.id === current.duplicate_of)
-    : null
+  const duplicateChecks = rows.map((row) => ({
+    id: row.id,
+    amount: signedExpenseAmount(row.amount, row.ai_extracted),
+    date: row.expense_date,
+    duplicateOf: row.duplicate_of,
+    duplicateConfirmed: Boolean(row.duplicate_confirmed),
+    splitGroupId: row.split_group_id,
+  }))
+  const currentCheck = duplicateChecks.find((row) => row.id === current.id)
+  const partners = currentCheck ? duplicatePartners(currentCheck, duplicateChecks) : []
+  const partnerId =
+    current.duplicate_of && partners.some((partner) => partner.id === current.duplicate_of)
+      ? current.duplicate_of
+      : partners[0]?.id
+  const duplicate = partnerId ? (rows.find((row) => row.id === partnerId) ?? null) : null
   const paths = [current.receipt_thumbnail_path, duplicate?.receipt_thumbnail_path].filter(
     (path): path is string => Boolean(path),
   )
