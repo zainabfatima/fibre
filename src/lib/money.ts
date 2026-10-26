@@ -189,7 +189,7 @@ export function totalExpenseCents(billableCents: number, builderFeeCents: number
   return billableCents + builderFeeCents
 }
 
-/** Total expense, minus money received, minus amounts the client paid directly. */
+/** Total expense, minus Funds Received, minus amounts the client paid directly. */
 export function balanceCents(totalCents: number, receivedCents: number, clientPaidCents: number) {
   return totalCents - receivedCents - clientPaidCents
 }

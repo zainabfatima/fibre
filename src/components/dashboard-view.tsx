@@ -50,7 +50,7 @@ export function DashboardView({ projects }: { projects: DashboardProject[] }) {
                   negative={isNegativeAmount(project.totalSpent)}
                   tone="total"
                 />
-                <Amount label="Balance left" value={formatMoney(project.balance)} alert={project.balanceOwed} />
+                <Amount label="Remaining Balance" value={formatMoney(project.balance)} alert={project.balanceOwed} />
               </dl>
             </Link>
           ))}

@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { StatusBadge } from "@/components/status-badge"
 import {
   balanceCents,
   centsToMoney,
@@ -19,6 +20,12 @@ export type DetailAmount = {
 export type DetailExpense = DetailAmount & {
   category: string
   categorySort: number
+  vendor?: string | null
+  description?: string | null
+  receiptHref?: string | null
+  thumbUrl?: string | null
+  invoiceNumber?: string | null
+  invoiceStatus?: string | null
 }
 
 export function AudienceTabs({
@@ -63,6 +70,7 @@ export function ExpenseDetailSummary({
   clientPaidCents,
   receivedCents,
   excelHref,
+  expenseColumns = "compact",
 }: {
   percent: string | number
   expenses: DetailExpense[]
@@ -73,6 +81,8 @@ export function ExpenseDetailSummary({
   clientPaidCents: number
   receivedCents: number
   excelHref: string
+  /** Client detailed summary lists every expense column. Admin stays compact. */
+  expenseColumns?: "compact" | "full"
 }) {
   const percentLabel = formatFeePercent(percent)
   const clientPaidFeeCents = percentOfCents(clientPaidCents, percent)
@@ -91,7 +101,7 @@ export function ExpenseDetailSummary({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-medium">Detailed expense summary</h2>
-          <p className="text-sm text-muted-foreground">Category totals, the builder fee on each category, and the money received.</p>
+          <p className="text-sm text-muted-foreground">Category totals, the builder fee on each category, and the Funds Received.</p>
         </div>
         <a
           href={excelHref}
@@ -108,17 +118,17 @@ export function ExpenseDetailSummary({
           <li>Builder fee = {percentLabel}% of each category total, rounded to the cent. It is not calculated on each expense.</li>
           <li>Builder fee on paid by client expense = {percentLabel}% of the paid-by-client total.</li>
           <li>Adding the category fees can differ by a few cents from {percentLabel}% of all project expenses together.</li>
-          <li>Balance = total expense − money received − expense paid by client.</li>
+          <li>Balance = total expense − Funds Received − expense paid by client.</li>
         </ul>
       </section>
 
       <section className="grid gap-2 sm:grid-cols-3">
         <Figure label="Total expense" value={formatMoney(centsToMoney(totalCents))} tone="total" negative={totalCents < 0} />
-        <Figure label="Money received" value={formatMoney(centsToMoney(receivedCents))} />
+        <Figure label="Funds Received" value={formatMoney(centsToMoney(receivedCents))} />
         <Figure
-          label="Balance left"
+          label="Remaining Balance"
           value={formatMoney(centsToMoney(leftCents))}
-          note="Total expense − money received − expense paid by client"
+          note="Total expense − Funds Received − expense paid by client"
           alert={leftCents > 0}
         />
       </section>
@@ -166,11 +176,11 @@ export function ExpenseDetailSummary({
 
       <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
         <header className="border-b border-border px-4 py-3">
-          <h3 className="font-medium">Money received</h3>
+          <h3 className="font-medium">Funds Received</h3>
           <p className="text-sm text-muted-foreground">Every payment, with its date. Subtracted in the balance.</p>
         </header>
         {paymentRows.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">No money received yet.</p>
+          <p className="px-4 py-6 text-sm text-muted-foreground">No Funds Received yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[32rem] text-sm">
@@ -192,7 +202,7 @@ export function ExpenseDetailSummary({
               </tbody>
               <tfoot>
                 <tr className="font-semibold">
-                  <td className="px-4 py-2" colSpan={2}>Money received</td>
+                  <td className="px-4 py-2" colSpan={2}>Funds Received</td>
                   <td className="px-4 py-2 text-right tabular-nums">{formatMoney(centsToMoney(receivedCents))}</td>
                 </tr>
               </tfoot>
@@ -207,7 +217,7 @@ export function ExpenseDetailSummary({
           <p className="rounded-xl bg-card px-4 py-6 text-sm text-muted-foreground ring-1 ring-foreground/10">No project expenses yet.</p>
         ) : (
           categories.map((category) => (
-            <CategoryBlock key={category.name} category={category} percentLabel={percentLabel} />
+            <CategoryBlock key={category.name} category={category} percentLabel={percentLabel} expenseColumns={expenseColumns} />
           ))
         )}
       </section>
@@ -234,10 +244,15 @@ function categoryGroups(expenses: DetailExpense[], percent: string | number) {
 function CategoryBlock({
   category,
   percentLabel,
+  expenseColumns = "compact",
 }: {
   category: { name: string; rows: DetailExpense[]; amountCents: number; feeCents: number }
   percentLabel: string
+  expenseColumns?: "compact" | "full"
 }) {
+  if (expenseColumns === "full") {
+    return <FullCategoryBlock category={category} percentLabel={percentLabel} />
+  }
   return (
     <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
       <header className="border-b border-border px-4 py-3">
@@ -277,6 +292,143 @@ function CategoryBlock({
         </table>
       </div>
     </section>
+  )
+}
+
+function FullCategoryBlock({
+  category,
+  percentLabel,
+}: {
+  category: { name: string; rows: DetailExpense[]; amountCents: number; feeCents: number }
+  percentLabel: string
+}) {
+  const total = formatMoney(centsToMoney(category.amountCents))
+  const fee = formatMoney(centsToMoney(category.feeCents))
+  return (
+    <section className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+      <header className="border-b border-border px-4 py-3">
+        <h3 className="font-medium">{category.name}</h3>
+      </header>
+      <div className="grid md:hidden">
+        {category.rows.map((row) => (
+          <article key={row.id} className="border-b border-border/70 px-4 py-3 text-sm">
+            <dl className="grid gap-1.5">
+              <DetailLine label="Date" value={row.date || "No date"} />
+              <DetailLine label="Vendor" value={row.vendor?.trim() || "—"} />
+              <DetailLine label="Description" value={row.description?.trim() || "—"} />
+              <DetailLine label="Amount" value={formatMoney(centsToMoney(row.amountCents))} amount />
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted-foreground">Receipt</dt>
+                <dd><ReceiptLink href={row.receiptHref} thumbUrl={row.thumbUrl} /></dd>
+              </div>
+              <DetailLine label="Invoice #" value={row.invoiceNumber?.trim() || "—"} />
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted-foreground">Invoice status</dt>
+                <dd><StatusBadge kind="invoice" status={row.invoiceStatus || "not_invoiced"} /></dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+        <CategoryTotals label="Category total" total={total} feeLabel={`Builder fee (${percentLabel}%)`} feeNote={`${percentLabel}% of this category total. Included in the total.`} fee={fee} />
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[960px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+              <th className="px-4 py-2 font-medium">Date</th>
+              <th className="px-4 py-2 font-medium">Vendor</th>
+              <th className="px-4 py-2 font-medium">Description</th>
+              <th className="px-4 py-2 text-right font-medium">Amount</th>
+              <th className="px-4 py-2 font-medium">Receipt</th>
+              <th className="px-4 py-2 font-medium">Invoice #</th>
+              <th className="px-4 py-2 font-medium">Invoice status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {category.rows.map((row) => (
+              <tr key={row.id} className="border-b border-border/70">
+                <td className="px-4 py-2 whitespace-nowrap">{row.date || "No date"}</td>
+                <td className="max-w-40 px-4 py-2 break-words">{row.vendor?.trim() || "—"}</td>
+                <td className="max-w-xs px-4 py-2 break-words">{row.description?.trim() || "—"}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatMoney(centsToMoney(row.amountCents))}</td>
+                <td className="px-4 py-2"><ReceiptLink href={row.receiptHref} thumbUrl={row.thumbUrl} /></td>
+                <td className="px-4 py-2 whitespace-nowrap">{row.invoiceNumber?.trim() || "—"}</td>
+                <td className="px-4 py-2">
+                  <StatusBadge kind="invoice" status={row.invoiceStatus || "not_invoiced"} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="font-semibold">
+              <td className="px-4 py-2" colSpan={3}>Category total</td>
+              <td className="px-4 py-2 text-right tabular-nums">{total}</td>
+              <td className="px-4 py-2" colSpan={3} />
+            </tr>
+            <tr className="bg-amber-100 text-amber-950">
+              <td className="px-4 py-2" colSpan={3}>
+                <span className="font-semibold">Builder fee ({percentLabel}%)</span>
+                <span className="mt-0.5 block text-xs font-normal">{percentLabel}% of this category total. Included in the total.</span>
+              </td>
+              <td className="px-4 py-2 text-right font-semibold tabular-nums">{fee}</td>
+              <td className="bg-amber-100 px-4 py-2" colSpan={3} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function DetailLine({ label, value, amount = false }: { label: string; value: string; amount?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className={`min-w-0 text-right break-words ${amount ? "font-medium tabular-nums" : ""}`}>{value}</dd>
+    </div>
+  )
+}
+
+function ReceiptLink({ href, thumbUrl }: { href?: string | null; thumbUrl?: string | null }) {
+  if (!href) return <span className="text-muted-foreground">—</span>
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 underline">
+      {thumbUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={thumbUrl} alt="" className="h-12 w-12 rounded border border-border object-cover" />
+      ) : null}
+      View
+    </a>
+  )
+}
+
+function CategoryTotals({
+  label,
+  total,
+  feeLabel,
+  feeNote,
+  fee,
+}: {
+  label: string
+  total: string
+  feeLabel: string
+  feeNote: string
+  fee: string
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3 px-4 py-2 text-sm font-semibold">
+        <span>{label}</span>
+        <span className="tabular-nums">{total}</span>
+      </div>
+      <div className="flex items-center justify-between gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-950">
+        <span>
+          <span className="font-semibold">{feeLabel}</span>
+          <span className="mt-0.5 block text-xs font-normal">{feeNote}</span>
+        </span>
+        <span className="font-semibold tabular-nums">{fee}</span>
+      </div>
+    </>
   )
 }
 

@@ -16,7 +16,7 @@ export function ClientShell({
           <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <BrandLogo href="/client" />
             <p className="min-w-0 text-[15px] font-semibold leading-tight break-words sm:text-lg">
-              Projects Expense Tracker
+              Client Portal
             </p>
           </div>
           {leave ? (

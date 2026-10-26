@@ -56,12 +56,12 @@ export function MoneySummary({
             : undefined
         }
       />
-      <Card label="Money received" value={formatMoney(centsToMoney(receivedCents))} />
+      <Card label="Funds Received" value={formatMoney(centsToMoney(receivedCents))} />
       <Card
-        label="Balance left"
+        label="Remaining Balance"
         value={formatMoney(centsToMoney(left))}
         alert={left > 0}
-        hint="Total expense − money received − expense paid by client"
+        hint="Total expense − Funds Received − expense paid by client"
       />
     </div>
   )

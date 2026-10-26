@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getClientAccountUser } from "@/lib/app-session"
 import { clientCodeFromName } from "@/lib/client-code"
 import { getClientProjectCode } from "@/lib/client-session"
 import { createAdminClient } from "@/lib/supabase/admin"
@@ -28,8 +29,10 @@ export async function findProjectByClientCode(code: string): Promise<ClientProje
   return { ok: true, project: data }
 }
 
-/** True only when the client cookie matches exactly one project, and it is this one. */
+/** True when this client login is assigned the project, or the project-number cookie matches it. */
 export async function clientSessionOwnsProject(projectId: string) {
+  const account = await getClientAccountUser()
+  if (account) return account.project_ids.includes(projectId)
   const code = await getClientProjectCode()
   if (!code) return false
   try {

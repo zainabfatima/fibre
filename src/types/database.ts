@@ -118,6 +118,30 @@ export type Database = {
         }
         Relationships: []
       }
+      progress_pictures: {
+        Row: {
+          id: string
+          project_id: string
+          category_id: number
+          file_path: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          category_id: number
+          file_path: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          category_id?: number
+          file_path?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           id: number
@@ -451,6 +475,24 @@ export type Database = {
           requested_address?: string | null
           created_at?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      app_user_projects: {
+        Row: {
+          user_id: string
+          project_id: string
+          created_at: string
+        }
+        Insert: {
+          user_id: string
+          project_id: string
+          created_at?: string
+        }
+        Update: {
+          user_id?: string
+          project_id?: string
+          created_at?: string
         }
         Relationships: []
       }

@@ -24,9 +24,9 @@ export default async function PaymentsPage({
   return (
     <div className="grid gap-4 px-4 py-4">
       <div>
-        <h2 className="text-lg font-medium">Money received from client</h2>
+        <h2 className="text-lg font-medium">Funds Received from client</h2>
         <p className="text-sm text-muted-foreground">
-          Add each payment with its date. Balance left is total expense minus money received minus expenses the client paid. The total includes both builder fees.
+          Add each payment with its date. Remaining Balance is total expense minus Funds Received minus expenses the client paid. The total includes both builder fees.
         </p>
       </div>
       <MoneySummary

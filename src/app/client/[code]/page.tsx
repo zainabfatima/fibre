@@ -1,12 +1,14 @@
 import { notFound, redirect } from "next/navigation"
 
-import { clientPathForProject, getClientAccountUser } from "@/lib/app-session"
+import { getClientAccountUser } from "@/lib/app-session"
+import { projectsForClient } from "@/lib/client-projects"
 
 import { CategoryChart } from "@/components/category-chart"
 import { CategorySheets } from "@/components/category-sheets"
 import { ExpenseAmountSearchBar, ExpenseSearchProvider } from "@/components/expense-amount-search"
 import { type SheetRow } from "@/components/expense-sheet"
 import { ClientLoginForm } from "@/components/client-login-form"
+import { ClientProjectSwitcher } from "@/components/client-project-list"
 import { ClientShell } from "@/components/client-shell"
 import { AudienceTabs, ExpenseDetailSummary } from "@/components/expense-detail-summary"
 import { MoneySummary } from "@/components/money-summary"
@@ -51,21 +53,22 @@ export default async function ClientProjectPage({
 
   const project = found.project
   const account = await getClientAccountUser()
-  if (account?.project_id && account.project_id !== project.id) {
-    const destination = await clientPathForProject(account.project_id)
-    redirect(destination ?? "/client")
-  }
-  const session = await getClientProjectCode()
-  if (account?.project_id !== project.id && session !== code) {
-    return (
-      <ClientShell>
-        <ClientLoginForm />
-      </ClientShell>
-    )
+  if (account) {
+    if (!account.project_ids.includes(project.id)) redirect("/client")
+  } else {
+    const session = await getClientProjectCode()
+    if (session !== code) {
+      return (
+        <ClientShell>
+          <ClientLoginForm />
+        </ClientShell>
+      )
+    }
   }
 
   const admin = createAdminClient()
-  const [{ data: expenses, error: expenseError }, { data: totals, error: totalsError }, { data: payments, error: paymentError }, { data: clientPaid, error: clientPaidError }, { data: summary, error: summaryError }] =
+  const portalPromise = account && account.project_ids.length > 1 ? projectsForClient(account.project_ids) : Promise.resolve([])
+  const [{ data: expenses, error: expenseError }, { data: totals, error: totalsError }, { data: payments, error: paymentError }, { data: clientPaid, error: clientPaidError }, { data: summary, error: summaryError }, portalProjects] =
     await Promise.all([
       admin
         .from("v_expense_rows")
@@ -76,6 +79,7 @@ export default async function ClientProjectPage({
       admin.from("client_payments").select("id, received_date, amount, note").eq("project_id", project.id).order("received_date"),
       admin.from("client_paid_expenses").select("id, paid_date, amount, note").eq("project_id", project.id).order("paid_date", { ascending: false }),
       admin.from("v_project_summary").select("total_spent, builder_fee_amount, client_paid_total, builder_fee_percent").eq("project_id", project.id).maybeSingle(),
+      portalPromise,
     ])
   if (expenseError) throw new Error(expenseError.message)
   if (totalsError) throw new Error(totalsError.message)
@@ -147,6 +151,12 @@ export default async function ClientProjectPage({
     <ClientShell leave>
       <ExpenseSearchProvider categories={sheetCategories} rows={rows}>
         <div className="px-4 pt-2">
+          {portalProjects.length > 1 ? (
+            <ClientProjectSwitcher
+              projects={portalProjects.flatMap((item) => (item.code ? [{ code: item.code, name: item.name }] : []))}
+              currentCode={code}
+            />
+          ) : null}
           <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
           <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
         </div>
@@ -161,13 +171,20 @@ export default async function ClientProjectPage({
           <div className="px-4 pb-6">
             <ExpenseDetailSummary
               percent={summary?.builder_fee_percent ?? 0}
+              expenseColumns="full"
               expenses={(expenses ?? []).map((row) => ({
                 id: row.id,
                 date: row.expense_date,
                 label: row.vendor?.trim() || "Receipt",
+                vendor: row.vendor,
+                description: row.description,
                 category: row.category_code != null && row.category_name ? formatCategory(row.category_code, row.category_name) : "Uncategorized",
                 categorySort: row.category_code ?? 9999,
                 amountCents: moneyToCents(row.amount),
+                receiptHref: row.receipt_file_path ? `/r/${row.id}` : null,
+                thumbUrl: row.receipt_thumbnail_path ? (thumbByPath.get(row.receipt_thumbnail_path) ?? null) : null,
+                invoiceNumber: row.invoice_number,
+                invoiceStatus: row.invoice_id ? row.billing_status : "not_invoiced",
               }))}
               clientPaid={(clientPaid ?? []).map((entry) => ({
                 id: entry.id,
@@ -178,7 +195,7 @@ export default async function ClientProjectPage({
               payments={(payments ?? []).map((payment) => ({
                 id: payment.id,
                 date: payment.received_date,
-                label: payment.note?.trim() || "Money received",
+                label: payment.note?.trim() || "Funds Received",
                 amountCents: moneyToCents(payment.amount),
               }))}
               billableCents={billableCents}
@@ -212,6 +229,7 @@ export default async function ClientProjectPage({
           invoiceTracking={project.invoice_tracking}
           mode="all"
           readOnly
+          columns="brief"
         />
         {(clientPaid ?? []).length > 0 ? (
           <section className="mx-4 mb-6">

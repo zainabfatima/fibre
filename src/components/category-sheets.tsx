@@ -30,6 +30,7 @@ export function CategorySheets({
   invoiceTracking,
   mode,
   readOnly = false,
+  columns = "all",
 }: {
   projectId: string
   categories: CategoryOption[]
@@ -38,6 +39,8 @@ export function CategorySheets({
   invoiceTracking: boolean
   mode: "all" | "needs"
   readOnly?: boolean
+  /** Client Expenses tab shows Date, Description, and Amount only. */
+  columns?: "all" | "brief"
 }) {
   const router = useRouter()
   const [preview, setPreview] = useState<SheetRow | null>(null)
@@ -221,6 +224,7 @@ export function CategorySheets({
           amountReset={amountReset}
           allRows={matchRows}
           readOnly={readOnly}
+          columns={columns}
         />
       ))}
       {uncategorized.length > 0 ? (
@@ -251,6 +255,7 @@ export function CategorySheets({
           amountReset={amountReset}
           allRows={matchRows}
           readOnly={readOnly}
+          columns={columns}
         />
       ) : null}
       {preview ? (
@@ -499,6 +504,7 @@ function CategoryBlock({
   amountReset,
   allRows,
   readOnly,
+  columns,
 }: {
   title: string
   budget?: string | number | null
@@ -527,8 +533,11 @@ function CategoryBlock({
   amountReset: number
   allRows: SheetRow[]
   readOnly: boolean
+  columns: "all" | "brief"
 }) {
-  const tableColumns = 5 + (readOnly ? 0 : 4) + (invoiceTracking ? 3 : 0)
+  const brief = columns === "brief"
+  const tableColumns = brief ? 3 : 5 + (readOnly ? 0 : 4) + (invoiceTracking ? 3 : 0)
+  const trailingColumns = brief ? 0 : (readOnly ? 1 : 5) + (invoiceTracking ? 3 : 0)
   const spentCents = sumCents(rows.map((row) => row.amount))
   const total = formatMoney(centsToMoney(spentCents))
   const budgetText = budget == null ? null : formatMoney(budget)
@@ -563,12 +572,34 @@ function CategoryBlock({
       </header>
       <>
         <div className="grid md:hidden">
+          {brief ? (
+            <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] gap-x-3 border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
+              <span>Date</span>
+              <span>Description</span>
+              <span className="text-right">Amount</span>
+            </div>
+          ) : null}
           {rows.map((row) => (
             <article
               key={row.id}
               data-expense-id={row.id}
               className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
             >
+              {brief ? (
+                <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] items-start gap-x-3 text-sm">
+                  <p>{row.date || "No date"}</p>
+                  <p className="leading-snug break-words">{row.description || "—"}</p>
+                  <AmountInput
+                    row={row}
+                    highlighted={matchIds.includes(row.id)}
+                    onAmount={onAmount}
+                    readOnly={readOnly}
+                    resetKey={amountReset}
+                    className="text-right text-base font-semibold"
+                  />
+                </div>
+              ) : (
+              <>
               {!readOnly && isDuplicatePair(row, allRows) ? (
                 <DuplicateNotice
                   others={pairedReceipts(row, allRows)}
@@ -752,6 +783,8 @@ function CategoryBlock({
                 </div>
               </details>
               )}
+              </>
+              )}
             </article>
           ))}
           <div className="bg-muted/60 px-3 py-3">
@@ -764,28 +797,28 @@ function CategoryBlock({
           </div>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1400px] text-sm">
+          <table className={`w-full text-sm ${brief ? "" : "min-w-[1400px]"}`}>
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>
-                <th className="px-3 py-2 font-medium">Vendor</th>
+                {brief ? null : <th className="px-3 py-2 font-medium">Vendor</th>}
                 <th className="px-3 py-2 font-medium">Description</th>
                 <th className="px-3 py-2 font-medium">Amount</th>
-                <th className="px-3 py-2 font-medium">Receipt</th>
-                {readOnly ? null : (
+                {brief ? null : <th className="px-3 py-2 font-medium">Receipt</th>}
+                {brief || readOnly ? null : (
                   <>
                     <th className="px-3 py-2 font-medium">Change category</th>
                     <th className="px-3 py-2 font-medium">Delete</th>
                   </>
                 )}
-                {invoiceTracking ? (
+                {brief || !invoiceTracking ? null : (
                   <>
                     <th className="px-3 py-2 font-medium">Invoice #</th>
                     <th className="px-3 py-2 font-medium">Invoice status</th>
                     <th className="px-3 py-2 font-medium">Invoice view</th>
                   </>
-                ) : null}
-                {readOnly ? null : (
+                )}
+                {brief || readOnly ? null : (
                   <>
                     <th className="bg-amber-50 px-3 py-2 font-medium text-amber-950">Reimbursement</th>
                     <th className="bg-sky-50 px-3 py-2 font-medium text-sky-950">QuickBooks</th>
@@ -824,9 +857,13 @@ function CategoryBlock({
                   className={`scroll-mt-48 border-b border-border/70 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
                   <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
-                  <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
+                  {brief ? null : <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>}
                   <td className="px-3 py-2">
-                    <DescriptionInput row={row} readOnly={readOnly} onDescription={onDescription} />
+                    {brief ? (
+                      <span className="block break-words">{row.description || "—"}</span>
+                    ) : (
+                      <DescriptionInput row={row} readOnly={readOnly} onDescription={onDescription} />
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <AmountInput
@@ -838,7 +875,7 @@ function CategoryBlock({
                       className="h-9 w-40 rounded-lg border px-2 text-right text-sm tabular-nums"
                     />
                   </td>
-                  <td className="px-3 py-2">
+                  {brief ? null : <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => onPreview(row)} className="h-12 w-12 overflow-hidden rounded border border-border">
                         {row.thumbUrl ? (
@@ -864,8 +901,8 @@ function CategoryBlock({
                         />
                       ) : null}
                     </div>
-                  </td>
-                  {readOnly ? null : (
+                  </td>}
+                  {brief || readOnly ? null : (
                     <>
                   <td className="px-3 py-2">
                     <ChangeCategoryCell
@@ -885,7 +922,7 @@ function CategoryBlock({
                   </td>
                     </>
                   )}
-                  {invoiceTracking ? (
+                  {!brief && invoiceTracking ? (
                     readOnly ? (
                       <>
                         <td className="px-3 py-2">{row.invoiceNumber || "—"}</td>
@@ -956,7 +993,7 @@ function CategoryBlock({
                     </>
                     )
                   ) : null}
-                  {readOnly ? null : (
+                  {brief || readOnly ? null : (
                     <>
                       <td className="bg-amber-50 px-3 py-2 align-top text-amber-950">
                         <ReimbursementFields row={row} onFlag={onReimbursement} onNote={onReimbursementNote} />
@@ -974,14 +1011,18 @@ function CategoryBlock({
                 </Fragment>
               ))}
               <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
-                <td className="px-3 py-2" colSpan={3}>
+                <td className="px-3 py-2" colSpan={brief ? 2 : 3}>
                   Spent
+                  {brief && overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
+                  {brief ? <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} /> : null}
                 </td>
                 <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
-                <td className="px-3 py-2" colSpan={(readOnly ? 1 : 5) + (invoiceTracking ? 3 : 0)}>
-                  {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
-                  <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
-                </td>
+                {trailingColumns > 0 ? (
+                  <td className="px-3 py-2" colSpan={trailingColumns}>
+                    {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
+                    <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} />
+                  </td>
+                ) : null}
               </tr>
             </tbody>
           </table>

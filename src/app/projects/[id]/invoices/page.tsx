@@ -17,9 +17,9 @@ export default async function InvoicesPage({
   if (project && !project.invoice_tracking) {
     return (
       <p className="px-4 py-6 text-sm text-muted-foreground">
-        This project records money received from the client.{" "}
+        This project records Funds Received from the client.{" "}
         <Link href={`/projects/${id}/payments`} className="underline">
-          Open money received
+          Open Funds Received
         </Link>
       </p>
     )

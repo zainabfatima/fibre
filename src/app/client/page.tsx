@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation"
 
 import { ClientLoginForm } from "@/components/client-login-form"
+import { ClientProjectList } from "@/components/client-project-list"
 import { ClientShell } from "@/components/client-shell"
-import { clientPathForProject, getClientAccountUser } from "@/lib/app-session"
+import { getClientAccountUser } from "@/lib/app-session"
+import { projectsForClient } from "@/lib/client-projects"
 import { getClientProjectCode } from "@/lib/client-session"
 
 export const dynamic = "force-dynamic"
@@ -14,12 +16,20 @@ export const metadata = {
 
 export default async function ClientHomePage() {
   const account = await getClientAccountUser()
-  if (account?.project_id) {
-    const destination = await clientPathForProject(account.project_id)
-    if (destination) redirect(destination)
+  if (account) {
+    const projects = await projectsForClient(account.project_ids)
+    if (projects.length === 1 && projects[0].code) redirect(`/client/${projects[0].code}`)
     return (
-      <ClientShell>
-        <ClientLoginForm initialError="Your project name needs to start with the project number before the client view can open." />
+      <ClientShell leave>
+        {projects.length === 0 ? (
+          <p className="px-4 text-sm text-muted-foreground">No project is assigned to this account.</p>
+        ) : projects.length === 1 ? (
+          <p className="px-4 text-sm text-muted-foreground">
+            Your project name needs to start with the project number before the client view can open.
+          </p>
+        ) : (
+          <ClientProjectList projects={projects} />
+        )}
       </ClientShell>
     )
   }

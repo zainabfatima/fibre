@@ -173,7 +173,7 @@ export async function buildSummaryWorkbook(input: {
     `Builder fee = ${percentLabel}% of the project expenses, rounded to the cent.`,
     `Builder fee on paid by client expense = ${percentLabel}% of the amounts the client paid directly.`,
     `The builder fee is ${percentLabel}% of each category total, not of each expense. Adding the category fees can differ by a few cents from ${percentLabel}% of all project expenses together.`,
-    "Balance = total expense − money received − expense paid by client.",
+    "Balance = total expense − Funds Received − expense paid by client.",
   ]
   for (const note of notes) {
     const row = sheet.addRow([note])
@@ -224,7 +224,7 @@ export async function buildSummaryWorkbook(input: {
   total.font = { bold: true, color: { argb: "FF065F46" } }
   sheet.addRow([])
 
-  const receivedHead = sheet.addRow(["Money received", null, "Subtracted in the balance"])
+  const receivedHead = sheet.addRow(["Funds Received", null, "Subtracted in the balance"])
   receivedHead.font = { bold: true }
   sheet.addRow(["Date and note", "Amount", null]).font = { bold: true }
   for (const payment of [...input.payments].sort((a, b) => a.received_date.localeCompare(b.received_date))) {
@@ -234,12 +234,12 @@ export async function buildSummaryWorkbook(input: {
       null,
     ])
   }
-  const receivedTotal = sheet.addRow(["Money received", Number(centsToMoney(receivedCents)), null])
+  const receivedTotal = sheet.addRow(["Funds Received", Number(centsToMoney(receivedCents)), null])
   receivedTotal.font = { bold: true }
   const balance = sheet.addRow([
-    "Balance left",
+    "Remaining Balance",
     Number(centsToMoney(leftCents)),
-    "Total expense − money received − expense paid by client",
+    "Total expense − Funds Received − expense paid by client",
   ])
   balance.font = { bold: true, color: { argb: leftCents > 0 ? "FFB91C1C" : "FF065F46" } }
   sheet.addRow([])

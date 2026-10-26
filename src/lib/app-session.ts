@@ -3,10 +3,10 @@ import "server-only"
 import { randomBytes } from "node:crypto"
 import { cookies } from "next/headers"
 
-import { clientCodeFromName } from "@/lib/client-code"
+import { assignedProjectIds } from "@/lib/client-projects"
 import { CLIENT_ACCOUNT_COOKIE } from "@/lib/client-session"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { SESSION_COOKIE, getSessionToken } from "@/lib/session"
+import { getSessionToken } from "@/lib/session"
 
 export type AppRole = "admin" | "client"
 export type AppUserStatus = "pending" | "active" | "rejected"
@@ -17,7 +17,7 @@ export type SessionUser = {
   email: string | null
   role: AppRole
   status: AppUserStatus
-  project_id: string | null
+  project_ids: string[]
 }
 
 const SESSION_SECONDS = 60 * 60 * 24 * 30
@@ -64,7 +64,15 @@ async function userForToken(token: string | null): Promise<SessionUser | null> {
     .eq("id", session.user_id)
     .maybeSingle()
   if (userError || !user || user.status !== "active") return null
-  return user
+  const project_ids = user.role === "client" ? await assignedProjectIds(user.id, user.project_id) : []
+  return {
+    id: user.id,
+    login_id: user.login_id,
+    email: user.email,
+    role: user.role,
+    status: user.status,
+    project_ids,
+  }
 }
 
 export async function getAdminUser() {
@@ -76,17 +84,8 @@ export async function getAdminUser() {
 export async function getClientAccountUser() {
   const jar = await cookies()
   const user = await userForToken(jar.get(CLIENT_ACCOUNT_COOKIE)?.value ?? null)
-  if (!user || user.role !== "client" || !user.project_id) return null
+  if (!user || user.role !== "client") return null
   return user
-}
-
-export async function clientPathForProject(projectId: string) {
-  const admin = createAdminClient()
-  const { data, error } = await admin.from("projects").select("name").eq("id", projectId).maybeSingle()
-  if (error) throw new Error(error.message)
-  if (!data) return null
-  const code = clientCodeFromName(data.name)
-  return code ? `/client/${code}` : null
 }
 
 export async function deleteSession(token: string | null | undefined) {

@@ -4,7 +4,6 @@ import { BrandLogo } from "@/components/brand-logo"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { CategoryChart } from "@/components/category-chart"
 import { AudienceTabs, ExpenseDetailSummary } from "@/components/expense-detail-summary"
-import { StatusBadge } from "@/components/status-badge"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { formatCategory } from "@/lib/format"
 import { balanceCents, centsToMoney, formatMoney, moneyToCents, percentOfCents, returnAmountClass, sumCents, totalExpenseCents, amountOverBudget } from "@/lib/money"
@@ -77,7 +76,7 @@ export default async function SharePage({
         <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4">
           <BrandLogo />
           <p className="min-w-0 text-[15px] font-semibold leading-tight break-words sm:text-lg">
-            Projects Expense Tracker
+            Client Portal
           </p>
         </div>
       </header>
@@ -95,13 +94,20 @@ export default async function SharePage({
       {detailed ? (
         <ExpenseDetailSummary
           percent={project.builder_fee_percent}
+          expenseColumns="full"
           expenses={rows.map((row) => ({
             id: row.id,
             date: row.expense_date,
             label: row.vendor?.trim() || "Receipt",
+            vendor: row.vendor,
+            description: row.description,
             category: row.category_code != null && row.category_name ? formatCategory(row.category_code, row.category_name) : "Uncategorized",
             categorySort: row.category_code ?? 9999,
             amountCents: moneyToCents(row.amount),
+            receiptHref: row.receipt_file_path ? `/r/${row.id}?t=${token}` : null,
+            thumbUrl: row.receipt_thumbnail_path ? (thumbs.get(row.receipt_thumbnail_path) ?? null) : null,
+            invoiceNumber: row.invoice_number,
+            invoiceStatus: row.invoice_id ? row.billing_status : "not_invoiced",
           }))}
           clientPaid={(clientPaid ?? []).map((entry) => ({
             id: entry.id,
@@ -112,7 +118,7 @@ export default async function SharePage({
           payments={(payments ?? []).map((payment) => ({
             id: payment.id,
             date: payment.received_date,
-            label: payment.note?.trim() || "Money received",
+            label: payment.note?.trim() || "Funds Received",
             amountCents: moneyToCents(payment.amount),
           }))}
           billableCents={billableCents}
@@ -130,12 +136,12 @@ export default async function SharePage({
           emphasis
           negative={totalCents < 0}
         />
-        <SummaryCard label="Money received" value={formatMoney(centsToMoney(receivedCents))} />
+        <SummaryCard label="Funds Received" value={formatMoney(centsToMoney(receivedCents))} />
         <SummaryCard
-          label="Balance left"
+          label="Remaining Balance"
           value={formatMoney(centsToMoney(leftCents))}
           alert={leftCents > 0}
-          hint="Total expense − money received − expense paid by client"
+          hint="Total expense − Funds Received − expense paid by client"
         />
       </section>
 
@@ -151,18 +157,12 @@ export default async function SharePage({
             title={section.title}
             budget={section.budget}
             rows={section.rows}
-            token={token}
-            thumbs={thumbs}
-            invoiceTracking={project.invoice_tracking}
           />
         ))}
         {uncategorized.length > 0 ? (
           <CategorySection
             title="Uncategorized"
             rows={uncategorized}
-            token={token}
-            thumbs={thumbs}
-            invoiceTracking={project.invoice_tracking}
           />
         ) : null}
         {(clientPaid ?? []).length > 0 ? (
@@ -241,29 +241,15 @@ function CategorySection({
   title,
   budget,
   rows,
-  token,
-  thumbs,
-  invoiceTracking,
 }: {
   title: string
   budget?: string | number | null
   rows: Array<{
     id: string
     expense_date: string | null
-    vendor: string | null
     description: string | null
     amount: number
-    category_id: number | null
-    receipt_thumbnail_path: string | null
-    invoice_id: string | null
-    invoice_number: string | null
-    invoice_file_path: string | null
-    billing_status: string
-    invoice_status: string | null
   }>
-  token: string
-  thumbs: Map<string | null, string | null>
-  invoiceTracking: boolean
 }) {
   const spentCents = sumCents(rows.map((row) => row.amount))
   const total = formatMoney(centsToMoney(spentCents))
@@ -293,56 +279,18 @@ function CategorySection({
       </header>
         <>
         <div className="grid md:hidden">
-          {rows.map((row) => {
-            const thumb = row.receipt_thumbnail_path ? thumbs.get(row.receipt_thumbnail_path) : null
-            return (
-              <article key={row.id} className="border-b border-border/70 p-3 text-sm">
-                <div className="flex items-start gap-3">
-                  <a href={`/r/${row.id}?t=${token}`} target="_blank" rel="noreferrer" className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-border bg-muted">
-                    {thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={thumb} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="px-1 text-center text-[10px]">Receipt</span>
-                    )}
-                  </a>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-medium leading-snug break-words">{row.vendor || "Receipt"}</p>
-                      <p className={`shrink-0 text-base font-semibold tabular-nums ${returnAmountClass(row.amount)}`}>{centsToMoney(moneyToCents(row.amount))}</p>
-                    </div>
-                    <p className="mt-0.5 text-muted-foreground">{row.expense_date || "No date"}</p>
-                    {row.description ? (
-                      <p className="mt-1 line-clamp-2 leading-snug break-words">
-                        <span className="sr-only">Description: </span>
-                        {row.description}
-                      </p>
-                    ) : null}
-                    {invoiceTracking ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span>{row.invoice_number ? `Invoice ${row.invoice_number}` : "No invoice"}</span>
-                        <StatusBadge kind="invoice" status={row.invoice_id ? row.billing_status : "not_invoiced"} />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <div className={`mt-3 grid gap-2 ${invoiceTracking ? "grid-cols-2" : "grid-cols-1"}`}>
-                  <a href={`/r/${row.id}?t=${token}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 font-medium">
-                    View receipt
-                  </a>
-                  {invoiceTracking && row.invoice_id && row.invoice_file_path ? (
-                    <a href={`/i/${row.invoice_id}?t=${token}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-input px-3 font-medium">
-                      View invoice
-                    </a>
-                  ) : invoiceTracking ? (
-                    <span className="inline-flex min-h-11 items-center justify-center rounded-lg bg-muted px-3 text-center text-muted-foreground">
-                      No invoice file
-                    </span>
-                  ) : null}
-                </div>
-              </article>
-            )
-          })}
+          <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] gap-x-3 border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
+            <span>Date</span>
+            <span>Description</span>
+            <span className="text-right">Amount</span>
+          </div>
+          {rows.map((row) => (
+            <article key={row.id} className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-border/70 p-3 text-sm">
+              <p>{row.expense_date || "No date"}</p>
+              <p className="leading-snug break-words">{row.description || "—"}</p>
+              <p className={`text-right text-base font-semibold tabular-nums ${returnAmountClass(row.amount)}`}>{centsToMoney(moneyToCents(row.amount))}</p>
+            </article>
+          ))}
           <p className={`px-3 py-3 text-sm font-semibold tabular-nums ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
             {budgetText ? `Budget ${budgetText} · ` : null}
             <span className={returnAmountClass(centsToMoney(spentCents))}>Spent {total}</span>
@@ -350,82 +298,28 @@ function CategorySection({
           </p>
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[840px] text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs">
                 <th className="px-3 py-2 font-medium">Date</th>
-                <th className="px-3 py-2 font-medium">Vendor</th>
                 <th className="px-3 py-2 font-medium">Description</th>
-                <th className="px-3 py-2 font-medium">Amount</th>
-                <th className="px-3 py-2 font-medium">Receipt</th>
-                {invoiceTracking ? (
-                  <>
-                    <th className="px-3 py-2 font-medium">Invoice #</th>
-                    <th className="px-3 py-2 font-medium">Invoice status</th>
-                    <th className="px-3 py-2 font-medium">Invoice view</th>
-                  </>
-                ) : null}
+                <th className="px-3 py-2 text-right font-medium">Amount</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
-                const thumb = row.receipt_thumbnail_path ? thumbs.get(row.receipt_thumbnail_path) : null
-                return (
-                  <tr key={row.id} className="border-b border-border/70">
-                    <td className="px-3 py-2 whitespace-nowrap">{row.expense_date || "—"}</td>
-                    <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>
-                    <td className="px-3 py-2">
-                      <span className="block max-w-48 truncate" title={row.description ?? undefined}>
-                        {row.description || "—"}
-                      </span>
-                    </td>
-                    <td className={`px-3 py-2 tabular-nums ${returnAmountClass(row.amount)}`}>{centsToMoney(moneyToCents(row.amount))}</td>
-                    <td className="px-3 py-2">
-                      <a
-                        href={`/r/${row.id}?t=${token}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 underline"
-                      >
-                        {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt="" className="h-12 w-12 rounded border border-border object-cover" />
-                        ) : null}
-                        View
-                      </a>
-                    </td>
-                    {invoiceTracking ? (
-                      <>
-                        <td className="px-3 py-2">{row.invoice_number || "—"}</td>
-                        <td className="px-3 py-2">
-                          {row.invoice_id ? (
-                            <StatusBadge kind="invoice" status={row.billing_status} />
-                          ) : (
-                            <StatusBadge kind="invoice" status="not_invoiced" />
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          {row.invoice_id && row.invoice_file_path ? (
-                            <a href={`/i/${row.invoice_id}?t=${token}`} target="_blank" rel="noreferrer" className="underline">
-                              View
-                            </a>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      </>
-                    ) : null}
-                  </tr>
-                )
-              })}
+              {rows.map((row) => (
+                <tr key={row.id} className="border-b border-border/70">
+                  <td className="px-3 py-2 whitespace-nowrap">{row.expense_date || "—"}</td>
+                  <td className="px-3 py-2 break-words">{row.description || "—"}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${returnAmountClass(row.amount)}`}>{centsToMoney(moneyToCents(row.amount))}</td>
+                </tr>
+              ))}
               <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
-                <td className="px-3 py-2" colSpan={3}>
+                <td className="px-3 py-2" colSpan={2}>
                   Spent
+                  {overBy ? <span className="mt-1 block font-medium text-red-700">Over budget by {overBy}</span> : null}
                 </td>
-                <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
-                <td className="px-3 py-2" colSpan={invoiceTracking ? 4 : 1}>
-                  {overBy ? <span className="font-medium text-red-700">Over budget by {overBy}</span> : null}
-                </td>
+                <td className={`px-3 py-2 text-right tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
               </tr>
             </tbody>
           </table>

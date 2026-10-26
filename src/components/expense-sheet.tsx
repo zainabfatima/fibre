@@ -673,9 +673,9 @@ export function ExpenseSheet({
         </p>
         {receivedCents != null ? (
           <>
-            <p className="tabular-nums">Money received {formatMoney(centsToMoney(receivedCents))}</p>
+            <p className="tabular-nums">Funds Received {formatMoney(centsToMoney(receivedCents))}</p>
             <p className={`font-medium tabular-nums ${grand - receivedCents > 0 ? "text-red-700" : ""}`}>
-              Balance left {formatMoney(centsToMoney(grand - receivedCents))}
+              Remaining Balance {formatMoney(centsToMoney(grand - receivedCents))}
             </p>
           </>
         ) : null}

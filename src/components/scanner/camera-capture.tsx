@@ -17,10 +17,13 @@ export function CameraCapture({
   pageNumber,
   onCapture,
   onClose,
+  fullFrame = false,
 }: {
   pageNumber: number
   onCapture: (blob: Blob, framed?: boolean) => void
   onClose: () => void
+  /** Capture the whole camera view. Receipt scans keep the adjustable crop frame. */
+  fullFrame?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -102,6 +105,12 @@ export function CameraCapture({
       const context = canvas.getContext("2d", { willReadFrequently: true })
       if (!context) throw new Error("Could not read the camera")
       context.drawImage(video, 0, 0, width, height)
+      if (fullFrame) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92))
+        if (!blob) throw new Error("The photo could not be taken.")
+        onCapture(blob, false)
+        return
+      }
       const image = context.getImageData(0, 0, width, height)
       const raster: Raster = { width, height, data: image.data }
       const corners = viewCornersToSource(
@@ -209,6 +218,7 @@ export function CameraCapture({
       ) : (
         <>
           <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
+          {fullFrame ? null : (
           <div
             className="absolute inset-0 z-10 touch-none"
             onPointerDown={pointerDown}
@@ -234,35 +244,42 @@ export function CameraCapture({
               />
             ))}
           </div>
+          )}
           <div className="pointer-events-none absolute left-0 right-0 top-0 z-20 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
             <div className="pointer-events-auto flex items-center justify-between">
               <button type="button" onClick={onClose} className="min-h-11 rounded-lg bg-black/50 px-3 text-sm">
                 Close
               </button>
-              <span className="rounded-full bg-black/50 px-3 py-1 text-sm">Page {pageNumber}</span>
+              <span className="rounded-full bg-black/50 px-3 py-1 text-sm">
+                {fullFrame ? "Progress picture" : `Page ${pageNumber}`}
+              </span>
               <button type="button" onClick={() => void toggleTorch()} className="min-h-11 rounded-lg bg-black/50 px-3 text-sm">
                 {torch ? "Flash on" : "Flash"}
               </button>
             </div>
-            <p className="mx-auto mt-3 max-w-sm rounded-lg bg-black/50 px-3 py-2 text-center text-sm">
-              Drag the corners onto the receipt. Anything outside the frame is left out.
-            </p>
-            <div className="mt-2 flex justify-center">
-              <button
-                type="button"
-                className="pointer-events-auto min-h-11 rounded-lg bg-black/50 px-3 text-sm"
-                onClick={() => updateFrame(defaultViewFrame)}
-              >
-                Reset frame
-              </button>
-            </div>
+            {fullFrame ? null : (
+              <>
+                <p className="mx-auto mt-3 max-w-sm rounded-lg bg-black/50 px-3 py-2 text-center text-sm">
+                  Drag the corners onto the receipt. Anything outside the frame is left out.
+                </p>
+                <div className="mt-2 flex justify-center">
+                  <button
+                    type="button"
+                    className="pointer-events-auto min-h-11 rounded-lg bg-black/50 px-3 text-sm"
+                    onClick={() => updateFrame(defaultViewFrame)}
+                  >
+                    Reset frame
+                  </button>
+                </div>
+              </>
+            )}
           </div>
           <button
             type="button"
             disabled={!ready || capturing}
             onClick={() => void grab()}
             className="absolute bottom-[max(2rem,env(safe-area-inset-bottom))] left-1/2 z-20 h-16 w-16 -translate-x-1/2 rounded-full border-4 border-white bg-white/30 disabled:opacity-50"
-            aria-label={capturing ? "Cropping photo" : "Take photo"}
+            aria-label={capturing ? (fullFrame ? "Taking photo" : "Cropping photo") : "Take photo"}
           />
         </>
       )}

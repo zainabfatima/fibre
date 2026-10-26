@@ -38,7 +38,7 @@ type AccountRow = {
   login_id: string
   email: string | null
   role: "admin" | "client"
-  project_id: string | null
+  project_ids: string[]
 }
 
 const initial: UserFormState = { error: null, message: null }
@@ -63,38 +63,53 @@ function Notice({ state }: { state: UserFormState }) {
   return null
 }
 
-function ProjectSelect({
+function ProjectChecks({
   projects,
-  defaultValue,
-  value,
-  onValueChange,
-  disabled,
+  selected,
+  onChange,
+  defaultSelected,
   id,
 }: {
   projects: ProjectOption[]
-  defaultValue?: string
-  value?: string
-  onValueChange?: (value: string) => void
-  disabled?: boolean
+  selected?: string[]
+  onChange?: (ids: string[]) => void
+  defaultSelected?: string[]
   id?: string
 }) {
+  const controlled = selected !== undefined
+  const initial = new Set(defaultSelected ?? [])
   return (
-    <select
-      id={id}
-      name="projectId"
-      {...(value === undefined ? { defaultValue: defaultValue ?? "" } : { value, onChange: (event) => onValueChange?.(event.target.value) })}
-      disabled={disabled}
-      className={fieldClass}
-      required={!disabled}
-    >
-      <option value="">Select a project</option>
-      {projects.map((project) => (
-        <option key={project.id} value={project.id}>
-          {project.name}
-          {project.address ? ` — ${project.address}` : ""}
-        </option>
-      ))}
-    </select>
+    <div id={id} className="grid max-h-64 gap-1 overflow-y-auto rounded-lg border border-input p-2">
+      {projects.length === 0 ? (
+        <p className="px-1 py-1.5 text-sm text-muted-foreground">No projects yet.</p>
+      ) : (
+        projects.map((project) => (
+          <label key={project.id} className="flex items-start gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-accent">
+            <input
+              type="checkbox"
+              name="projectIds"
+              value={project.id}
+              className="mt-0.5"
+              {...(controlled
+                ? {
+                    checked: selected.includes(project.id),
+                    onChange: (event) => {
+                      const next = new Set(selected)
+                      if (event.target.checked) next.add(project.id)
+                      else next.delete(project.id)
+                      onChange?.([...next])
+                    },
+                  }
+                : { defaultChecked: initial.has(project.id) })}
+            />
+            <span>
+              {project.name}
+              {project.address ? <span className="block text-xs text-muted-foreground">{project.address}</span> : null}
+            </span>
+          </label>
+        ))
+      )}
+    </div>
   )
 }
 
@@ -142,8 +157,12 @@ function RequestCard({ request, projects }: { request: SignupRequest; projects: 
           <Input id={`password-${request.id}`} name="password" defaultValue={request.suggestedPassword} required className="h-10" autoComplete="new-password" />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor={`project-${request.id}`}>Project view</Label>
-          <ProjectSelect id={`project-${request.id}`} projects={projects} defaultValue={request.suggestedProjectId} />
+          <Label htmlFor={`project-${request.id}`}>Projects</Label>
+          <ProjectChecks
+            id={`project-${request.id}`}
+            projects={projects}
+            defaultSelected={request.suggestedProjectId ? [request.suggestedProjectId] : []}
+          />
         </div>
       </div>
       <Notice state={state} />
@@ -207,14 +226,14 @@ function AddAccount({ projects }: { projects: ProjectOption[] }) {
             onChange={(event) => setRole(event.target.value === "admin" ? "admin" : "client")}
             className={fieldClass}
           >
-            <option value="client">Client view of one project</option>
+            <option value="client">Client view of assigned projects</option>
             <option value="admin">Admin, full access</option>
           </select>
         </div>
         {role === "client" ? (
           <div className="flex flex-col gap-2 sm:col-span-2">
-            <Label htmlFor="new-project">Project view</Label>
-            <ProjectSelect id="new-project" projects={projects} />
+            <Label htmlFor="new-project">Projects</Label>
+            <ProjectChecks id="new-project" projects={projects} />
           </div>
         ) : null}
       </div>
@@ -236,20 +255,29 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
   const [loginId, setLoginId] = useState(account.login_id)
   const [email, setEmail] = useState(account.email ?? "")
   const [role, setRole] = useState<"admin" | "client">(account.role)
-  const [projectId, setProjectId] = useState(account.project_id ?? "")
+  const [projectIds, setProjectIds] = useState(account.project_ids)
   const [password, setPassword] = useState("")
   const locked = account.login_id === "fibre"
+  const projectKey = account.project_ids.join(",")
+  const assignedNames = projects.filter((project) => account.project_ids.includes(project.id)).map((project) => project.name)
 
   useEffect(() => {
     setLoginId(account.login_id)
     setEmail(account.email ?? "")
     setRole(account.role)
-    setProjectId(account.project_id ?? "")
+    setProjectIds(projectKey ? projectKey.split(",") : [])
     setPassword("")
-  }, [account.login_id, account.email, account.role, account.project_id])
+  }, [account.login_id, account.email, account.role, projectKey])
 
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+      {account.role === "client" ? (
+        <p className="text-sm text-muted-foreground">
+          {assignedNames.length > 0 ? assignedNames.join(", ") : "No projects assigned"}
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">Admin, full access</p>
+      )}
       <form action={saveAction} autoComplete="off" className="flex flex-col gap-3">
         <input type="hidden" name="userId" value={account.id} />
         <div className="grid gap-3 sm:grid-cols-2">
@@ -288,7 +316,7 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
               onChange={(event) => setRole(event.target.value === "admin" ? "admin" : "client")}
               className={fieldClass}
             >
-              <option value="client">Client view of one project</option>
+              <option value="client">Client view of assigned projects</option>
               <option value="admin">Admin, full access</option>
             </select>
             {locked ? <input type="hidden" name="role" value="admin" /> : null}
@@ -307,8 +335,13 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
           </div>
           {role === "client" ? (
             <div className="flex flex-col gap-2 sm:col-span-2">
-              <Label htmlFor={`account-project-${account.id}`}>Project view</Label>
-              <ProjectSelect id={`account-project-${account.id}`} projects={projects} value={projectId} onValueChange={setProjectId} />
+              <Label htmlFor={`account-project-${account.id}`}>Projects</Label>
+              <ProjectChecks
+                id={`account-project-${account.id}`}
+                projects={projects}
+                selected={projectIds}
+                onChange={setProjectIds}
+              />
             </div>
           ) : null}
         </div>

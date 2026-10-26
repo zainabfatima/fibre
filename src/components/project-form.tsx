@@ -72,7 +72,7 @@ export function ProjectForm({
           No — expenses only
         </label>
         <p className="text-sm text-muted-foreground">
-          Money received from the client is always available, either way.
+          Funds Received from the client is always available, either way.
         </p>
       </fieldset>
       <div className="grid gap-2">

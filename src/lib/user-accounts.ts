@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getAdminUser } from "@/lib/app-session"
 import { clientCodeFromName } from "@/lib/client-code"
+import { assignedProjectIds, mergeProjectIds, projectIdsByUser, replaceUserProjects } from "@/lib/client-projects"
 import { requireAdmin } from "@/lib/db"
 import { ADMIN_INBOX, OFFICE_CC, appOrigin, sendAppMail, sendOfficeCopy } from "@/lib/mail"
 import { generatePassword, hashPassword, openPassword, sealPassword } from "@/lib/passwords"
@@ -42,6 +43,28 @@ function projectProblem(project: ProjectChoice | undefined) {
   return null
 }
 
+function chosenProjectIds(formData: FormData) {
+  const ids = formData
+    .getAll("projectIds")
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean)
+  return [...new Set(ids)]
+}
+
+function chosenProjects(projects: ProjectChoice[], ids: string[]) {
+  if (ids.length === 0) return { error: "Choose at least one project.", projects: [] as ProjectChoice[] }
+  const chosen: ProjectChoice[] = []
+  for (const id of ids) {
+    const project = projects.find((item) => item.id === id)
+    if (!project) return { error: "Choose a project.", projects: [] as ProjectChoice[] }
+    const problem = projectProblem(project)
+    if (problem) return { error: problem, projects: [] as ProjectChoice[] }
+    chosen.push(project)
+  }
+  return { error: null, projects: chosen }
+}
+
 async function loadProjects() {
   const admin = createAdminClient()
   const { data, error } = await admin.from("projects").select("id, name, address").order("name")
@@ -64,9 +87,14 @@ async function findAccount(identifier: string) {
 function loginLetter(input: {
   loginId: string
   password: string
-  projectName: string
-  projectAddress: string | null
+  projects: Array<{ name: string; address: string | null }>
 }) {
+  const access =
+    input.projects.length === 0
+      ? ["This login is an admin login for the whole tracker."]
+      : input.projects.length === 1
+        ? ["This login can view only this project:", input.projects[0].name, input.projects[0].address ?? ""]
+        : ["This login can view these projects:", ...input.projects.flatMap((project) => [project.name, project.address ?? ""])]
   return [
     "Your Fibre Construction login is ready.",
     "",
@@ -75,9 +103,7 @@ function loginLetter(input: {
     "",
     `Sign in: ${appOrigin()}/login`,
     "",
-    "This login can view only this project:",
-    input.projectName,
-    input.projectAddress ?? "",
+    ...access,
   ].join("\n")
 }
 
@@ -85,12 +111,11 @@ async function emailCredentials(input: {
   to: string | null
   loginId: string
   password: string
-  projectName: string
-  projectAddress: string | null
+  projects: Array<{ name: string; address: string | null }>
   subject: string
 }) {
   const loginId = input.loginId.replace(/[\r\n]+/g, "")
-  const letter = loginLetter({ ...input, loginId })
+  const letter = loginLetter({ loginId, password: input.password, projects: input.projects })
   const office = await sendOfficeCopy({
     to: ADMIN_INBOX,
     cc: OFFICE_CC,
@@ -116,15 +141,19 @@ function savedPassword(account: { password_encrypted: string | null }) {
 export async function loadUsersPage() {
   await requireAdmin()
   const admin = createAdminClient()
-  const [usersResult, projects] = await Promise.all([
+  const [usersResult, projects, links] = await Promise.all([
     admin
       .from("app_users")
       .select("id, login_id, email, role, status, project_id, requested_project_name, requested_address, created_at")
       .order("created_at", { ascending: false }),
     loadProjects(),
+    projectIdsByUser(),
   ])
   if (usersResult.error) throw new Error(usersResult.error.message)
-  const users = usersResult.data ?? []
+  const users = (usersResult.data ?? []).map((user) => ({
+    ...user,
+    project_ids: mergeProjectIds(links.get(user.id), user.project_id),
+  }))
   const requests = users
     .filter((user) => user.status !== "active")
     .map((user) => {
@@ -234,16 +263,14 @@ export async function reviewSignupRequest(formData: FormData): Promise<UserFormS
   const loginId = normalizeLogin(text(formData, "loginId"))
   const email = normalizeLogin(text(formData, "email"))
   const password = text(formData, "password")
-  const projectId = text(formData, "projectId")
   if (!loginId) return { error: "Enter a user ID.", message: null }
   if (!EMAIL.test(email)) return { error: "Enter the email that should receive the login.", message: null }
   const weak = passwordError(password)
   if (weak) return { error: weak, message: null }
 
   const projects = await loadProjects()
-  const project = projects.find((item) => item.id === projectId)
-  const problem = projectProblem(project)
-  if (problem || !project) return { error: problem ?? "Choose a project.", message: null }
+  const chosen = chosenProjects(projects, chosenProjectIds(formData))
+  if (chosen.error) return { error: chosen.error, message: null }
 
   const { error: updateError } = await admin
     .from("app_users")
@@ -254,17 +281,22 @@ export async function reviewSignupRequest(formData: FormData): Promise<UserFormS
       password_encrypted: sealPassword(password),
       role: "client",
       status: "active",
-      project_id: project.id,
+      project_id: chosen.projects[0].id,
     })
     .eq("id", user.id)
   if (updateError) return { error: duplicateMessage(updateError.message), message: null }
+  try {
+    await replaceUserProjects(user.id, chosen.projects.map((project) => project.id))
+  } catch (linkError) {
+    return { error: linkError instanceof Error ? linkError.message : "Could not save the projects.", message: null }
+  }
 
   return finishCredentials({
     userId: user.id,
     to: email,
     loginId,
     password,
-    project,
+    projects: chosen.projects,
     subject: "Your Fibre Construction login",
     success: `Approved ${loginId}. The login was emailed to ${email} and to ${ADMIN_INBOX}, with a copy to ${OFFICE_CC}.`,
   })
@@ -277,19 +309,18 @@ export async function createAccount(formData: FormData): Promise<UserFormState> 
   const email = emailRaw || (EMAIL.test(loginId) ? loginId : "")
   const password = text(formData, "password")
   const role = text(formData, "role") === "admin" ? "admin" : "client"
-  const projectId = text(formData, "projectId")
   const sendEmail = formData.get("sendEmail") === "on"
   if (!loginId) return { error: "Enter a user ID.", message: null }
   if (email && !EMAIL.test(email)) return { error: "Enter a valid email.", message: null }
   const weak = passwordError(password)
   if (weak) return { error: weak, message: null }
 
-  let project: ProjectChoice | undefined
+  let chosen: ProjectChoice[] = []
   if (role === "client") {
     const projects = await loadProjects()
-    project = projects.find((item) => item.id === projectId)
-    const problem = projectProblem(project)
-    if (problem || !project) return { error: problem ?? "Choose a project.", message: null }
+    const result = chosenProjects(projects, chosenProjectIds(formData))
+    if (result.error) return { error: result.error, message: null }
+    chosen = result.projects
   }
   if (sendEmail && !email) return { error: "Enter an email so the login can be sent.", message: null }
 
@@ -303,11 +334,16 @@ export async function createAccount(formData: FormData): Promise<UserFormState> 
       password_encrypted: sealPassword(password),
       role,
       status: "active",
-      project_id: role === "client" ? project?.id ?? null : null,
+      project_id: chosen[0]?.id ?? null,
     })
     .select("id")
     .single()
   if (error) return { error: duplicateMessage(error.message), message: null }
+  try {
+    await replaceUserProjects(data.id, chosen.map((project) => project.id))
+  } catch (linkError) {
+    return { error: linkError instanceof Error ? linkError.message : "Could not save the projects.", message: null }
+  }
 
   if (!sendEmail) {
     revalidatePath("/users")
@@ -319,7 +355,7 @@ export async function createAccount(formData: FormData): Promise<UserFormState> 
     to: email,
     loginId,
     password,
-    project: project ?? null,
+    projects: chosen,
     subject: role === "admin" ? "Your Fibre Construction admin login" : "Your Fibre Construction login",
     success: `Added ${loginId}. The login was emailed to ${email} and to ${ADMIN_INBOX}, with a copy to ${OFFICE_CC}.`,
   })
@@ -331,7 +367,6 @@ export async function saveAccount(formData: FormData): Promise<UserFormState> {
   const loginId = normalizeLogin(text(formData, "loginId"))
   const email = normalizeLogin(text(formData, "email"))
   const role = text(formData, "role") === "admin" ? "admin" : "client"
-  const projectId = text(formData, "projectId")
   const password = text(formData, "password")
   const admin = createAdminClient()
   const { data: user, error } = await admin.from("app_users").select("*").eq("id", userId).maybeSingle()
@@ -343,12 +378,12 @@ export async function saveAccount(formData: FormData): Promise<UserFormState> {
   }
   if (email && !EMAIL.test(email)) return { error: "Enter a valid email.", message: null }
 
-  let project: ProjectChoice | null = null
+  let chosen: ProjectChoice[] = []
   if (role === "client") {
     const projects = await loadProjects()
-    project = projects.find((item) => item.id === projectId) ?? null
-    const problem = projectProblem(project ?? undefined)
-    if (problem || !project) return { error: problem ?? "Choose a project.", message: null }
+    const result = chosenProjects(projects, chosenProjectIds(formData))
+    if (result.error) return { error: result.error, message: null }
+    chosen = result.projects
   }
 
   const patch: {
@@ -362,7 +397,7 @@ export async function saveAccount(formData: FormData): Promise<UserFormState> {
     login_id: loginId,
     email: email || null,
     role,
-    project_id: project?.id ?? null,
+    project_id: chosen[0]?.id ?? null,
   }
   if (password) {
     const weak = passwordError(password)
@@ -373,6 +408,11 @@ export async function saveAccount(formData: FormData): Promise<UserFormState> {
 
   const { error: updateError } = await admin.from("app_users").update(patch).eq("id", user.id)
   if (updateError) return { error: duplicateMessage(updateError.message), message: null }
+  try {
+    await replaceUserProjects(user.id, chosen.map((project) => project.id))
+  } catch (linkError) {
+    return { error: linkError instanceof Error ? linkError.message : "Could not save the projects.", message: null }
+  }
   if (password) await dropOtherSessions(user.id)
 
   revalidatePath("/users")
@@ -405,13 +445,19 @@ export async function emailSavedPassword(formData: FormData): Promise<UserFormSt
   if (!user || user.status !== "active") return { error: "That account was not found.", message: null }
   if (!user.email) return { error: "Add an email on this account before sending the login.", message: null }
 
-  let project: ProjectChoice | null = null
+  let projects: ProjectChoice[] = []
   if (user.role === "client") {
-    if (!user.project_id) return { error: "Assign a project before emailing this login.", message: null }
-    const projects = await loadProjects()
-    project = projects.find((item) => item.id === user.project_id) ?? null
-    const problem = projectProblem(project ?? undefined)
-    if (problem || !project) return { error: problem ?? "Assign a project before emailing this login.", message: null }
+    const ids = await assignedProjectIds(user.id, user.project_id)
+    if (ids.length === 0) return { error: "Assign a project before emailing this login.", message: null }
+    const allProjects = await loadProjects()
+    const chosen = chosenProjects(allProjects, ids)
+    if (chosen.error) {
+      return {
+        error: chosen.error === "Choose a project." ? "Assign a project before emailing this login." : chosen.error,
+        message: null,
+      }
+    }
+    projects = chosen.projects
   }
 
   let password = ""
@@ -426,7 +472,7 @@ export async function emailSavedPassword(formData: FormData): Promise<UserFormSt
     to: user.email,
     loginId: user.login_id,
     password,
-    project,
+    projects,
     subject: "Your Fibre Construction login",
     success: `Emailed the saved login for ${user.login_id}. The project view was left as it is.`,
   })
@@ -439,11 +485,21 @@ export async function forgotPassword(formData: FormData): Promise<UserFormState>
   if (!user) return { error: "No account uses that email.", message: null }
   if (user.role === "admin") return { error: "Admin passwords are changed on the Users page after you sign in.", message: null }
   if (user.status === "pending") return { error: "This signup is still waiting for approval.", message: null }
-  if (user.status !== "active" || !user.project_id) return { error: "This account is not active.", message: null }
+  if (user.status !== "active") return { error: "This account is not active.", message: null }
+  const ids = await assignedProjectIds(user.id, user.project_id)
+  if (ids.length === 0) return { error: "This account is not active.", message: null }
 
   const projects = await loadProjects()
-  const project = projects.find((item) => item.id === user.project_id)
-  if (!project) return { error: "The assigned project is no longer available.", message: null }
+  const chosen = chosenProjects(projects, ids)
+  if (chosen.error) {
+    return {
+      error:
+        chosen.error === "Choose a project." || chosen.error === "Choose at least one project."
+          ? "The assigned project is no longer available."
+          : chosen.error,
+      message: null,
+    }
+  }
 
   let password = ""
   try {
@@ -460,8 +516,7 @@ export async function forgotPassword(formData: FormData): Promise<UserFormState>
       to: recipient,
       loginId: user.login_id,
       password,
-      projectName: project.name,
-      projectAddress: project.address,
+      projects: chosen.projects,
       subject: "Your Fibre Construction login",
     })
   } catch (error) {
@@ -495,7 +550,7 @@ async function finishCredentials(input: {
   to: string | null
   loginId: string
   password: string
-  project: ProjectChoice | null
+  projects: ProjectChoice[]
   subject: string
   success: string
 }): Promise<UserFormState> {
@@ -504,8 +559,7 @@ async function finishCredentials(input: {
       to: input.to,
       loginId: input.loginId,
       password: input.password,
-      projectName: input.project?.name ?? "Full office access",
-      projectAddress: input.project?.address ?? "Admin login for the whole tracker",
+      projects: input.projects,
       subject: input.subject,
     })
   } catch (error) {

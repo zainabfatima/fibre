@@ -21,14 +21,15 @@ export function ProjectNav({
   const base = `/projects/${projectId}`
   const links = [
     { key: "expenses", href: "", label: "Expenses" },
+    { key: "upload", href: "/upload", label: "Upload Receipts" },
+    { key: "progress", href: "/progress", label: "Upload Progress Pictures" },
     { key: "client", href: "/client-paid", label: "Paid by client" },
     ...(invoiceTracking
       ? [{ key: "needs", href: "?tab=needs", label: "Needs invoicing" }]
       : []),
-    { key: "upload", href: "/upload", label: "Upload" },
     { key: "review", href: "/review", label: pendingReviews > 0 ? `Review (${pendingReviews})` : "Review" },
     { key: "summary", href: "/summary", label: "Detailed summary" },
-    { key: "payments", href: "/payments", label: "Money received" },
+    { key: "payments", href: "/payments", label: "Funds Received" },
     ...(invoiceTracking ? [{ key: "invoices", href: "/invoices", label: "Invoices" }] : []),
     { key: "share", href: "/share", label: "Share" },
     { key: "settings", href: "/settings", label: "Settings" },

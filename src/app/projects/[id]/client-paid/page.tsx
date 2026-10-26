@@ -30,7 +30,7 @@ export default async function ClientPaidPage({
       <div>
         <h2 className="text-lg font-medium">Expense paid by client</h2>
         <p className="text-sm text-muted-foreground">
-          Add each amount the client paid directly, the same way you enter money received. The builder fee is
+          Add each amount the client paid directly, the same way you enter Funds Received. The builder fee is
           calculated on these amounts. The amounts are subtracted in the balance.
         </p>
       </div>

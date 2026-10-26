@@ -148,6 +148,32 @@ export async function listBudgets(projectId: string) {
   return data ?? []
 }
 
+export async function listProgressPictures(projectId: string) {
+  const supabase = await requireAdmin()
+  const { data, error } = await supabase
+    .from("progress_pictures")
+    .select("id, category_id, file_path, created_at")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+  if (error) throw new Error(error.message)
+  const rows = data ?? []
+  const urls = new Map<string, string>()
+  const paths = rows.map((row) => row.file_path)
+  for (let index = 0; index < paths.length; index += 80) {
+    const batch = paths.slice(index, index + 80)
+    const signed = await supabase.storage.from("progress-pictures").createSignedUrls(batch, 60 * 30)
+    for (const item of signed.data ?? []) {
+      if (item.path && item.signedUrl) urls.set(item.path, item.signedUrl)
+    }
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    categoryId: row.category_id,
+    createdAt: row.created_at,
+    url: urls.get(row.file_path) ?? null,
+  }))
+}
+
 export async function signStoragePath(
   bucket: "receipts" | "invoices",
   path: string | null,

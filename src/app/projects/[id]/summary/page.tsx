@@ -42,7 +42,7 @@ export default async function ProjectSummaryPage({
     payments.map((row) => ({
       id: row.id,
       date: row.received_date,
-      label: row.note?.trim() || "Money received",
+      label: row.note?.trim() || "Funds Received",
       amountCents: moneyToCents(row.amount),
     })),
   )

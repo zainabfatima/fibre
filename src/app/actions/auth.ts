@@ -4,11 +4,11 @@ import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 
 import {
-  clientPathForProject,
   createSession,
   deleteSession,
   sessionCookieOptions,
 } from "@/lib/app-session"
+import { assignedProjectIds, projectsForClient } from "@/lib/client-projects"
 import {
   CLIENT_ACCOUNT_COOKIE,
   CLIENT_PROJECT_COOKIE,
@@ -72,18 +72,23 @@ export async function signIn(
     redirect((await requestIsZainab()) ? "/zainab" : "/")
   }
 
-  if (!user.project_id) return { error: "No project is assigned to this account." }
-  const destination = await clientPathForProject(user.project_id)
-  const code = destination?.slice("/client/".length) ?? ""
-  if (!destination || !code) {
+  const projectIds = await assignedProjectIds(user.id, user.project_id)
+  if (projectIds.length === 0) return { error: "No project is assigned to this account." }
+  const projects = await projectsForClient(projectIds)
+  if (projects.length === 0) return { error: "The assigned project is no longer available." }
+  if (projects.length === 1 && !projects[0].code) {
     return { error: "The assigned project needs a number at the start of its name before the client view can open." }
   }
 
   const token = await createSession(user.id)
   jar.set(CLIENT_ACCOUNT_COOKIE, token, clientCookieOptions(SESSION_SECONDS))
-  jar.set(CLIENT_PROJECT_COOKIE, code, clientCookieOptions(SESSION_SECONDS))
   jar.set(SESSION_COOKIE, "", { ...sessionCookieOptions(), maxAge: 0 })
-  redirect(destination)
+  if (projects.length === 1 && projects[0].code) {
+    jar.set(CLIENT_PROJECT_COOKIE, projects[0].code, clientCookieOptions(SESSION_SECONDS))
+    redirect(`/client/${projects[0].code}`)
+  }
+  jar.set(CLIENT_PROJECT_COOKIE, "", { ...clientCookieOptions(), maxAge: 0 })
+  redirect("/client")
 }
 
 export async function signOut() {
