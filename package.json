@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --import ./scripts/resolve-at-register.mjs --test src/lib/receiptCrop.test.ts src/lib/parseMoneyInput.test.ts src/lib/scanner/view-frame.test.ts src/lib/duplicates.test.ts src/lib/progress-pictures.test.ts",
+    "test": "node --experimental-strip-types --import ./scripts/resolve-at-register.mjs --test src/lib/receiptCrop.test.ts src/lib/parseMoneyInput.test.ts src/lib/scanner/view-frame.test.ts src/lib/scanner/pdf.test.ts src/lib/duplicates.test.ts src/lib/progress-pictures.test.ts",
     "seed": "node scripts/seed-demo.mjs",
     "reprocess-crops": "node scripts/reprocess-receipt-crops.mjs"
   },

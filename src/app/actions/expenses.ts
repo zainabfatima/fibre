@@ -75,6 +75,15 @@ function reimbursementNameFrom(formData: FormData) {
   return name ? name.slice(0, 80) : null
 }
 
+async function receiptFileKind(file: File) {
+  const name = file.name.toLowerCase()
+  const header = Buffer.from(await file.slice(0, 5).arrayBuffer())
+  const magicPdf = header.subarray(0, 4).toString("latin1") === "%PDF"
+  if (file.type === "application/pdf" || name.endsWith(".pdf") || magicPdf) return "pdf" as const
+  if (file.type === "image/jpeg") return "jpeg" as const
+  return null
+}
+
 export async function saveScannedReceipt(formData: FormData) {
   const projectId = String(formData.get("projectId") ?? "")
   const hashes = String(formData.get("hashes") ?? "")
@@ -86,9 +95,9 @@ export async function saveScannedReceipt(formData: FormData) {
   const captureRaw = String(formData.get("captureType") ?? "single")
   const captureType = captureRaw === "long" || captureRaw === "multi_page" ? captureRaw : "single"
   const pageCount = Math.max(1, Math.min(20, Number(formData.get("pageCount") ?? (hashes.length || 1))))
-  const isPdf = file instanceof File && file.type === "application/pdf"
-  const isJpeg = file instanceof File && file.type === "image/jpeg"
-  if (!(file instanceof File) || (!isPdf && !isJpeg) || !projectId || hashes.length === 0) {
+  const kind = file instanceof File ? await receiptFileKind(file) : null
+  const isPdf = kind === "pdf"
+  if (!(file instanceof File) || !kind || !projectId || hashes.length === 0) {
     return { error: "The scanned receipt is missing" }
   }
   const cropMethodRaw = String(formData.get("cropMethod") ?? "")
@@ -215,9 +224,9 @@ export async function retakeExpenseReceipt(formData: FormData) {
   const captureRaw = String(formData.get("captureType") ?? "single")
   const captureType = captureRaw === "long" || captureRaw === "multi_page" ? captureRaw : "single"
   const pageCount = Math.max(1, Math.min(20, Number(formData.get("pageCount") ?? (hashes.length || 1))))
-  const isPdf = file instanceof File && file.type === "application/pdf"
-  const isJpeg = file instanceof File && file.type === "image/jpeg"
-  if (!(file instanceof File) || (!isPdf && !isJpeg) || !projectId || !expenseId || hashes.length === 0) {
+  const kind = file instanceof File ? await receiptFileKind(file) : null
+  const isPdf = kind === "pdf"
+  if (!(file instanceof File) || !kind || !projectId || !expenseId || hashes.length === 0) {
     return { error: "The new photo is missing" }
   }
   const cropMethodRaw = String(formData.get("cropMethod") ?? "")

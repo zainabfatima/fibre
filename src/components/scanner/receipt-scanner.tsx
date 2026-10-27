@@ -24,7 +24,7 @@ import {
 } from "@/lib/receiptCrop"
 import { sha256 } from "@/lib/scanner/hash"
 import { checksFor } from "@/lib/scanner/image"
-import { imagesToPdf, isPdfFile, RECEIPT_UPLOAD_ACCEPT, renderPdf } from "@/lib/scanner/pdf"
+import { imagesToPdf, isPdfUpload, RECEIPT_UPLOAD_ACCEPT } from "@/lib/scanner/pdf"
 import type { CaptureType, PageChecks, ScanResult } from "@/lib/scanner/types"
 
 type Choice = "auto" | "manual" | "original"
@@ -86,12 +86,15 @@ export function ReceiptScanner({
   replacing = false,
   onCancel,
   onComplete,
+  onPdfFiles,
 }: {
   initialFiles?: File[]
   startInCamera?: boolean
   replacing?: boolean
   onCancel: () => void
   onComplete: (results: ScanResult[]) => Promise<void>
+  /** Original PDF files. They are not cropped or redrawn. */
+  onPdfFiles?: (files: File[]) => Promise<void>
 }) {
   const [pages, setPages] = useState<Draft[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -189,24 +192,22 @@ export function ReceiptScanner({
   async function acceptFiles(files: File[]) {
     if (files.length === 0) return
     const chosen = files.slice(0, 20)
-    if (chosen.length > 1) setBatchChoice(true)
-    if (chosen.some(isPdfFile)) setStatus("Reading the PDF")
+    const pdfs: File[] = []
+    const images: File[] = []
+    for (const file of chosen) {
+      if (await isPdfUpload(file)) pdfs.push(file)
+      else images.push(file)
+    }
+    if (pdfs.length > 0) {
+      if (onPdfFiles) await onPdfFiles(pdfs)
+      else setNote("PDF receipts are saved as the original file from Upload Receipts.")
+    }
+    if (images.length === 0) return
+    if (images.length > 1) setBatchChoice(true)
     try {
-      const images: Blob[] = []
-      for (const file of chosen) {
-        if (!isPdfFile(file)) {
-          images.push(file)
-          continue
-        }
-        const rendered = await renderPdf(file)
-        if (rendered.pages.length === 0) throw new Error("This PDF has no pages")
-        for (const page of rendered.pages) images.push(page.blob)
-      }
-      for (const image of images.slice(0, 20)) await addBlob(image)
+      for (const image of images) await addBlob(image)
     } catch (cause) {
-      setNote(cause instanceof Error ? cause.message : "This PDF could not be opened")
-    } finally {
-      setStatus(null)
+      setNote(cause instanceof Error ? cause.message : "This photo could not be opened")
     }
   }
 

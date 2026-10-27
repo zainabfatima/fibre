@@ -264,6 +264,8 @@ export function CategorySheets({
             {preview.thumbUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={preview.thumbUrl} alt="Receipt" className="max-h-[70vh] w-full object-contain" />
+            ) : preview.hasReceipt !== false ? (
+              <iframe title="Receipt" src={`/r/${preview.id}`} className="h-[70vh] min-h-80 w-full rounded-lg bg-white" />
             ) : (
               <p>Open the file to view this receipt.</p>
             )}

@@ -7,7 +7,8 @@ import { useRouter } from "next/navigation"
 import { saveScannedReceipt } from "@/app/actions/expenses"
 import { ReceiptScanner } from "@/components/scanner/receipt-scanner"
 import { formatCategory } from "@/lib/format"
-import { RECEIPT_UPLOAD_ACCEPT } from "@/lib/scanner/pdf"
+import { sha256 } from "@/lib/scanner/hash"
+import { asPdfFile, isPdfUpload, pdfPageCount, RECEIPT_UPLOAD_ACCEPT } from "@/lib/scanner/pdf"
 import type { ScanResult } from "@/lib/scanner/types"
 import { withZainab } from "@/lib/zainab-path"
 import { useZainab } from "@/components/view-mode"
@@ -105,6 +106,95 @@ export function UploadQueue({
     }
     setCategoryError(null)
     setScan({ files, camera })
+  }
+
+  async function saveOriginalPdfs(files: File[], openReview: boolean) {
+    const lockedCategory = chosenCategoryId()
+    if (manual && lockedCategory == null) {
+      setCategoryError("Pick a category before uploading receipts.")
+      return
+    }
+    setRunning(true)
+    setReviewId(null)
+    setSavedNote(null)
+    let firstReady: string | null = null
+    let hadProblem = false
+    for (const source of files) {
+      const pdf = asPdfFile(source)
+      const id = crypto.randomUUID()
+      setItems((current) => [
+        { id, name: pdf.name || "PDF receipt", status: "uploading", detail: "Saving the PDF" },
+        ...current,
+      ])
+      try {
+        const hash = await sha256(pdf)
+        const body = new FormData()
+        body.set("projectId", projectId)
+        body.set("hashes", hash)
+        body.set("captureType", "single")
+        body.set("pageCount", String(await pdfPageCount(pdf)))
+        body.set("needsManualCrop", "false")
+        body.set("file", pdf)
+        if (lockedCategory != null) body.set("categoryId", String(lockedCategory))
+        if (reimburse) {
+          body.set("reimbursement", "true")
+          body.set("reimbursementName", reimburseName.trim())
+        }
+        const uploaded = await saveScannedReceipt(body)
+        if (uploaded.error || !uploaded.id) {
+          hadProblem = true
+          update(id, {
+            status: uploaded.existingId ? "duplicate" : "error",
+            detail: uploaded.error,
+            expenseId: uploaded.existingId,
+          })
+          continue
+        }
+        update(id, { status: "extracting", detail: "Reading the amount", expenseId: uploaded.id })
+        const extracted = await readReceipt(uploaded.id, lockedCategory)
+        if (extracted.ok === false) {
+          hadProblem = true
+          update(id, {
+            status: "error",
+            detail: extracted.error || "Saved for review. The amount still needs a look.",
+            expenseId: uploaded.id,
+          })
+        } else {
+          setItems((current) => current.filter((item) => item.id !== id))
+        }
+        firstReady = firstReady ?? uploaded.id
+      } catch (cause) {
+        hadProblem = true
+        update(id, { status: "error", detail: cause instanceof Error ? cause.message : "Upload failed" })
+      }
+    }
+    setRunning(false)
+    if (!firstReady) return
+    router.refresh()
+    if (!openReview) return
+    if (!hadProblem) {
+      router.push(withZainab(`/projects/${projectId}/review?expense=${firstReady}`, zainab))
+      return
+    }
+    setReviewId(firstReady)
+  }
+
+  function takeFiles(files: File[]) {
+    void (async () => {
+      const chosen = files.slice(0, 20)
+      const pdfs: File[] = []
+      const images: File[] = []
+      for (const file of chosen) {
+        if (await isPdfUpload(file)) pdfs.push(file)
+        else images.push(file)
+      }
+      if (chosen.length > 0 && manual && !chosenCategoryId()) {
+        setCategoryError("Pick a category before uploading receipts.")
+        return
+      }
+      if (pdfs.length) await saveOriginalPdfs(pdfs, images.length === 0)
+      if (images.length) startScan(images, false)
+    })()
   }
 
   async function saveResults(results: ScanResult[]) {
@@ -273,6 +363,7 @@ export function UploadQueue({
           startInCamera={scan.camera}
           onCancel={() => setScan(null)}
           onComplete={saveResults}
+          onPdfFiles={(files) => saveOriginalPdfs(files, false)}
         />
       ) : (
         <div
@@ -280,12 +371,12 @@ export function UploadQueue({
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
             event.preventDefault()
-            startScan([...event.dataTransfer.files], false)
+            takeFiles([...event.dataTransfer.files])
           }}
         >
           <p className="font-medium">Drop receipts here</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Photos and PDFs are cropped, straightened, and saved as a clean black-and-white scan.
+            Photos are cropped and straightened. A PDF is saved as the original file, so you can open that same PDF.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <label
@@ -306,7 +397,7 @@ export function UploadQueue({
                 onChange={(event) => {
                   const files = [...(event.target.files ?? [])]
                   event.target.value = ""
-                  if (files.length) startScan(files, false)
+                  if (files.length) takeFiles(files)
                 }}
               />
             </label>
