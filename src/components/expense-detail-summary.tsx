@@ -26,6 +26,8 @@ export type DetailExpense = DetailAmount & {
   thumbUrl?: string | null
   invoiceNumber?: string | null
   invoiceStatus?: string | null
+  /** Opens the invoice file when one is stored. Empty when the expense has no file. */
+  invoiceHref?: string | null
 }
 
 export function AudienceTabs({
@@ -332,13 +334,17 @@ function FullCategoryBlock({
                 <dt className="text-muted-foreground">Invoice status</dt>
                 <dd><StatusBadge kind="invoice" status={row.invoiceStatus || "not_invoiced"} /></dd>
               </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted-foreground">Invoice view</dt>
+                <dd><InvoiceLink href={row.invoiceHref} number={row.invoiceNumber} /></dd>
+              </div>
             </dl>
           </article>
         ))}
         <CategoryTotals label="Category total" total={total} feeLabel={`Builder fee (${percentLabel}%)`} feeNote={`${percentLabel}% of this category total. Included in the total.`} fee={fee} />
       </div>
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[960px] text-sm">
+        <table className="w-full min-w-[1080px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="px-4 py-2 font-medium">Date</th>
@@ -348,6 +354,7 @@ function FullCategoryBlock({
               <th className="px-4 py-2 font-medium">Receipt</th>
               <th className="px-4 py-2 font-medium">Invoice #</th>
               <th className="px-4 py-2 font-medium">Invoice status</th>
+              <th className="px-4 py-2 font-medium">Invoice view</th>
             </tr>
           </thead>
           <tbody>
@@ -362,6 +369,9 @@ function FullCategoryBlock({
                 <td className="px-4 py-2">
                   <StatusBadge kind="invoice" status={row.invoiceStatus || "not_invoiced"} />
                 </td>
+                <td className="px-4 py-2 whitespace-nowrap">
+                  <InvoiceLink href={row.invoiceHref} number={row.invoiceNumber} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -369,7 +379,7 @@ function FullCategoryBlock({
             <tr className="font-semibold">
               <td className="px-4 py-2" colSpan={3}>Category total</td>
               <td className="px-4 py-2 text-right tabular-nums">{total}</td>
-              <td className="px-4 py-2" colSpan={3} />
+              <td className="px-4 py-2" colSpan={4} />
             </tr>
             <tr className="bg-amber-100 text-amber-950">
               <td className="px-4 py-2" colSpan={3}>
@@ -377,7 +387,7 @@ function FullCategoryBlock({
                 <span className="mt-0.5 block text-xs font-normal">{percentLabel}% of this category total. Included in the total.</span>
               </td>
               <td className="px-4 py-2 text-right font-semibold tabular-nums">{fee}</td>
-              <td className="bg-amber-100 px-4 py-2" colSpan={3} />
+              <td className="bg-amber-100 px-4 py-2" colSpan={4} />
             </tr>
           </tfoot>
         </table>
@@ -403,6 +413,16 @@ function ReceiptLink({ href, thumbUrl }: { href?: string | null; thumbUrl?: stri
         // eslint-disable-next-line @next/next/no-img-element
         <img src={thumbUrl} alt="" className="h-12 w-12 rounded border border-border object-cover" />
       ) : null}
+      View
+    </a>
+  )
+}
+
+function InvoiceLink({ href, number }: { href?: string | null; number?: string | null }) {
+  if (!href) return <span className="text-muted-foreground">—</span>
+  const label = number?.trim() ? `View invoice ${number.trim()}` : "View invoice"
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="underline" aria-label={label}>
       View
     </a>
   )

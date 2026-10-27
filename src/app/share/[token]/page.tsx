@@ -110,6 +110,7 @@ export default async function SharePage({
             thumbUrl: row.receipt_thumbnail_path ? (thumbs.get(row.receipt_thumbnail_path) ?? null) : null,
             invoiceNumber: row.invoice_number,
             invoiceStatus: row.invoice_id ? row.billing_status : "not_invoiced",
+            invoiceHref: row.invoice_id && row.invoice_file_path ? `/i/${row.invoice_id}?t=${token}` : null,
           }))}
           clientPaid={(clientPaid ?? []).map((entry) => ({
             id: entry.id,
