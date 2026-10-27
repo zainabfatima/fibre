@@ -573,20 +573,20 @@ function CategoryBlock({
       <>
         <div className="grid md:hidden">
           {brief ? (
-            <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] gap-x-3 border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
-              <span>Date</span>
-              <span>Description</span>
-              <span className="text-right">Amount</span>
+            <div className="grid grid-cols-[7.75rem_minmax(0,1fr)_auto] gap-x-5 border-b border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold">
+              <span className="text-sky-800">Date</span>
+              <span className="text-orange-800">Description</span>
+              <span className="text-right text-emerald-800">Amount</span>
             </div>
           ) : null}
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <article
               key={row.id}
               data-expense-id={row.id}
-              className={`scroll-mt-48 border-b border-border/70 p-3 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+              className={`scroll-mt-48 border-b border-border/70 p-3 ${brief && !matchIds.includes(row.id) ? (index % 2 === 0 ? "bg-amber-50" : "bg-sky-50") : ""} ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
             >
               {brief ? (
-                <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] items-start gap-x-3 text-sm">
+                <div className="grid grid-cols-[7.75rem_minmax(0,1fr)_auto] items-start gap-x-5 text-sm">
                   <p>{row.date || "No date"}</p>
                   <p className="min-w-0 leading-snug break-words whitespace-normal">{row.description || "—"}</p>
                   <AmountInput
@@ -800,17 +800,17 @@ function CategoryBlock({
           <table className={`w-full ${brief ? "table-fixed text-base" : "min-w-[1400px] text-sm"}`}>
             {brief ? (
               <colgroup>
-                <col className="w-36" />
+                <col className="w-44" />
                 <col />
                 <col className="w-40" />
               </colgroup>
             ) : null}
             <thead>
-              <tr className={`border-b border-border text-left ${brief ? "text-sm" : "text-xs"}`}>
-                <th className={brief ? "px-4 py-3 font-medium" : "px-3 py-2 font-medium"}>Date</th>
+              <tr className={`text-left ${brief ? "border-b border-sky-200 bg-sky-50 text-sm" : "border-b border-border text-xs"}`}>
+                <th className={brief ? "px-4 py-3 pr-8 font-bold text-sky-800" : "px-3 py-2 font-medium"}>Date</th>
                 {brief ? null : <th className="px-3 py-2 font-medium">Vendor</th>}
-                <th className={brief ? "px-4 py-3 font-medium" : "px-3 py-2 font-medium"}>Description</th>
-                <th className={brief ? "px-4 py-3 text-right font-medium" : "px-3 py-2 font-medium"}>Amount</th>
+                <th className={brief ? "px-4 py-3 font-bold text-orange-800" : "px-3 py-2 font-medium"}>Description</th>
+                <th className={brief ? "px-4 py-3 text-right font-bold text-emerald-800" : "px-3 py-2 font-medium"}>Amount</th>
                 {brief ? null : <th className="px-3 py-2 font-medium">Receipt</th>}
                 {brief || readOnly ? null : (
                   <>
@@ -834,7 +834,7 @@ function CategoryBlock({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row, index) => (
                 <Fragment key={row.id}>
                 {isDuplicatePair(row, allRows) && !readOnly ? (
                   <tr className="bg-red-50 dark:bg-red-950/40">
@@ -861,9 +861,9 @@ function CategoryBlock({
                 ) : null}
                 <tr
                   data-expense-id={row.id}
-                  className={`scroll-mt-48 border-b border-border/70 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
+                  className={`scroll-mt-48 border-b border-border/70 ${brief && !matchIds.includes(row.id) ? (index % 2 === 0 ? "bg-amber-50" : "bg-sky-50") : ""} ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
-                  <td className={brief ? "px-4 py-3 align-top whitespace-nowrap" : "px-3 py-2 whitespace-nowrap"}>{row.date || "—"}</td>
+                  <td className={brief ? "px-4 py-3 pr-8 align-top whitespace-nowrap" : "px-3 py-2 whitespace-nowrap"}>{row.date || "—"}</td>
                   {brief ? null : <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>}
                   <td className={brief ? "min-w-0 px-4 py-3 align-top whitespace-normal" : "px-3 py-2"}>
                     {brief ? (
