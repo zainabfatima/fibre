@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
@@ -27,6 +27,52 @@ type CategoryOption = {
   name: string
 }
 
+type SavedUpload = {
+  manual: boolean
+  categoryId: string
+  reimburse: boolean
+  reimburseName: string
+}
+
+const uploadPrefListeners = new Set<() => void>()
+
+function subscribeUploadPrefs(onStoreChange: () => void) {
+  uploadPrefListeners.add(onStoreChange)
+  return () => {
+    uploadPrefListeners.delete(onStoreChange)
+  }
+}
+
+function parseUploadPrefs(raw: string | null, categories: CategoryOption[]): SavedUpload {
+  const saved: SavedUpload = { manual: true, categoryId: "", reimburse: false, reimburseName: "" }
+  if (!raw) return saved
+  try {
+    const parsed = JSON.parse(raw) as {
+      manual?: unknown
+      categoryId?: unknown
+      reimburse?: unknown
+      reimburseName?: unknown
+    }
+    if (typeof parsed.manual === "boolean") saved.manual = parsed.manual
+    if (
+      typeof parsed.categoryId === "string" &&
+      categories.some((category) => String(category.id) === parsed.categoryId)
+    ) {
+      saved.categoryId = parsed.categoryId
+    }
+    if (typeof parsed.reimburse === "boolean") saved.reimburse = parsed.reimburse
+    if (typeof parsed.reimburseName === "string") saved.reimburseName = parsed.reimburseName.slice(0, 80)
+  } catch {
+    // Keep the default: manual category on, nothing selected yet.
+  }
+  return saved
+}
+
+function writeUploadPrefs(storageKey: string, prefs: SavedUpload) {
+  sessionStorage.setItem(storageKey, JSON.stringify(prefs))
+  for (const listener of uploadPrefListeners) listener()
+}
+
 async function readReceipt(expenseId: string, categoryId: number | null) {
   const response = await fetch("/api/extract", {
     method: "POST",
@@ -51,43 +97,17 @@ export function UploadQueue({
   const [scan, setScan] = useState<{ files: File[]; camera: boolean } | null>(null)
   const [reviewId, setReviewId] = useState<string | null>(null)
   const [savedNote, setSavedNote] = useState<string | null>(null)
-  const [manual, setManual] = useState(true)
-  const [categoryId, setCategoryId] = useState("")
   const [categoryError, setCategoryError] = useState<string | null>(null)
-  const [reimburse, setReimburse] = useState(false)
-  const [reimburseName, setReimburseName] = useState("")
-  const [hydrated, setHydrated] = useState(false)
+  const storedPrefs = useSyncExternalStore(
+    subscribeUploadPrefs,
+    () => sessionStorage.getItem(storageKey),
+    () => null,
+  )
+  const { manual, categoryId, reimburse, reimburseName } = parseUploadPrefs(storedPrefs, categories)
 
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(storageKey)
-      if (raw) {
-        const parsed = JSON.parse(raw) as {
-          manual?: unknown
-          categoryId?: unknown
-          reimburse?: unknown
-          reimburseName?: unknown
-        }
-        if (typeof parsed.manual === "boolean") setManual(parsed.manual)
-        if (
-          typeof parsed.categoryId === "string" &&
-          categories.some((category) => String(category.id) === parsed.categoryId)
-        ) {
-          setCategoryId(parsed.categoryId)
-        }
-        if (typeof parsed.reimburse === "boolean") setReimburse(parsed.reimburse)
-        if (typeof parsed.reimburseName === "string") setReimburseName(parsed.reimburseName.slice(0, 80))
-      }
-    } catch {
-      // Keep the default: manual category on, nothing selected yet.
-    }
-    setHydrated(true)
-  }, [storageKey, categories])
-
-  useEffect(() => {
-    if (!hydrated) return
-    sessionStorage.setItem(storageKey, JSON.stringify({ manual, categoryId, reimburse, reimburseName }))
-  }, [hydrated, manual, categoryId, reimburse, reimburseName, storageKey])
+  function savePrefs(next: SavedUpload) {
+    writeUploadPrefs(storageKey, next)
+  }
 
   function update(id: string, patch: Partial<Item>) {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
@@ -292,7 +312,7 @@ export function UploadQueue({
             type="checkbox"
             checked={manual}
             onChange={(event) => {
-              setManual(event.target.checked)
+              savePrefs({ manual: event.target.checked, categoryId, reimburse, reimburseName })
               setCategoryError(null)
             }}
             className="size-5 shrink-0"
@@ -305,7 +325,7 @@ export function UploadQueue({
             <select
               value={categoryId}
               onChange={(event) => {
-                setCategoryId(event.target.value)
+                savePrefs({ manual, categoryId: event.target.value, reimburse, reimburseName })
                 setCategoryError(null)
               }}
               className="h-11 w-full rounded-lg border border-input bg-transparent px-3 text-base"
@@ -335,7 +355,9 @@ export function UploadQueue({
           Reimbursement
           <select
             value={reimburse ? "yes" : "no"}
-            onChange={(event) => setReimburse(event.target.value === "yes")}
+            onChange={(event) =>
+              savePrefs({ manual, categoryId, reimburse: event.target.value === "yes", reimburseName })
+            }
             className="h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-base text-foreground"
           >
             <option value="no">No</option>
@@ -347,7 +369,9 @@ export function UploadQueue({
               Note — who to reimburse
               <input
                 value={reimburseName}
-                onChange={(event) => setReimburseName(event.target.value)}
+                onChange={(event) =>
+                  savePrefs({ manual, categoryId, reimburse, reimburseName: event.target.value.slice(0, 80) })
+                }
                 maxLength={80}
                 placeholder="Who to reimburse"
                 className="h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-base text-foreground"
