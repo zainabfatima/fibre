@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
+import { getSessionUser } from "@/lib/app-session"
 import { clientSessionOwnsProject } from "@/lib/client-access"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getSessionToken } from "@/lib/session"
 
 function contentType(path: string) {
   const lower = path.toLowerCase()
@@ -19,12 +19,12 @@ async function sendStoredFile(
   projectId: string,
   tokenFromPath: string | undefined,
   clientAllowed: boolean,
+  office: boolean,
 ) {
   const url = new URL(request.url)
   const token = tokenFromPath || url.searchParams.get("t")
-  const session = await getSessionToken()
   const admin = createAdminClient()
-  if (!session && !clientAllowed) {
+  if (!office && !clientAllowed) {
     if (!token) return NextResponse.json({ error: "This link is not valid" }, { status: 401 })
     const { data: project } = await admin
       .from("projects")
@@ -60,8 +60,10 @@ export async function openReceipt(request: Request, expenseId: string, tokenFrom
     .eq("id", expenseId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Receipt not found" }, { status: 404 })
-  const fibre = Boolean(await getSessionToken())
-  const clientAllowed = fibre ? false : await clientSessionOwnsProject(data.project_id)
+  const sessionUser = await getSessionUser()
+  if (sessionUser?.role === "staff") return NextResponse.json({ error: "This link is not valid" }, { status: 403 })
+  const office = sessionUser?.role === "admin"
+  const clientAllowed = office ? false : await clientSessionOwnsProject(data.project_id)
   return sendStoredFile(
     request,
     "receipts",
@@ -69,6 +71,7 @@ export async function openReceipt(request: Request, expenseId: string, tokenFrom
     data.project_id,
     tokenFromPath,
     clientAllowed,
+    office,
   )
 }
 
@@ -80,7 +83,9 @@ export async function openInvoice(request: Request, invoiceId: string, tokenFrom
     .eq("id", invoiceId)
     .maybeSingle()
   if (!data) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
-  const fibre = Boolean(await getSessionToken())
-  const clientAllowed = fibre ? false : await clientSessionOwnsProject(data.project_id)
-  return sendStoredFile(request, "invoices", data.file_path, data.project_id, tokenFromPath, clientAllowed)
+  const sessionUser = await getSessionUser()
+  if (sessionUser?.role === "staff") return NextResponse.json({ error: "This link is not valid" }, { status: 403 })
+  const office = sessionUser?.role === "admin"
+  const clientAllowed = office ? false : await clientSessionOwnsProject(data.project_id)
+  return sendStoredFile(request, "invoices", data.file_path, data.project_id, tokenFromPath, clientAllowed, office)
 }

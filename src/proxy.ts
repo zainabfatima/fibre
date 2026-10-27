@@ -30,15 +30,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set("x-fibre-path", logical)
   if (zainab) {
     const url = request.nextUrl.clone()
     url.pathname = logical
-    const requestHeaders = new Headers(request.headers)
     requestHeaders.set("x-fibre-view", "zainab")
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } })
   }
 
-  return updateSession(request)
+  return updateSession(request, requestHeaders)
 }
 
 export const config = {

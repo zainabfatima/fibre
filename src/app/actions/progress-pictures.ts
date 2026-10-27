@@ -2,12 +2,21 @@
 
 import { revalidatePath } from "next/cache"
 
-import { requireAdmin } from "@/lib/db"
+import { getSessionUser } from "@/lib/app-session"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 const MAX_BYTES = 20 * 1024 * 1024
 
 function refresh(projectId: string) {
   revalidatePath(`/projects/${projectId}/progress`)
+  revalidatePath(`/staff/${projectId}`)
+}
+
+async function progressEditor(projectId: string) {
+  const user = await getSessionUser()
+  if (user?.role === "admin") return createAdminClient()
+  if (user?.role === "staff" && user.project_ids.includes(projectId)) return createAdminClient()
+  return null
 }
 
 export async function saveProgressPicture(formData: FormData) {
@@ -22,12 +31,14 @@ export async function saveProgressPicture(formData: FormData) {
   }
   if (file.size > MAX_BYTES) return { error: "That picture is too large." }
 
+  const supabase = await progressEditor(projectId)
+  if (!supabase) return { error: "You cannot change pictures for this project." }
+
   const bytes = Buffer.from(await file.arrayBuffer())
   if (bytes.length < 3 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
     return { error: "The picture must be a photo." }
   }
 
-  const supabase = await requireAdmin()
   const { data: project, error: projectError } = await supabase
     .from("projects")
     .select("id")
@@ -67,7 +78,8 @@ export async function saveProgressPicture(formData: FormData) {
 }
 
 export async function deleteProgressPicture(projectId: string, pictureId: string) {
-  const supabase = await requireAdmin()
+  const supabase = await progressEditor(projectId)
+  if (!supabase) return { error: "You cannot change pictures for this project." }
   const { data, error } = await supabase
     .from("progress_pictures")
     .select("id, file_path")

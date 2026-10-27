@@ -3,16 +3,23 @@ import { NextResponse, type NextRequest } from "next/server"
 
 import type { Database } from "@/types/database"
 
-export async function updateSession(request: NextRequest) {
+export async function updateSession(request: NextRequest, requestHeaders: Headers) {
   const supabaseKey =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !supabaseKey) {
-    return NextResponse.next({ request })
+  const forward = () => {
+    const headers = new Headers(requestHeaders)
+    const cookie = request.cookies.getAll().map(({ name, value }) => `${name}=${value}`).join("; ")
+    if (cookie) headers.set("cookie", cookie)
+    return NextResponse.next({ request: { headers } })
   }
 
-  let supabaseResponse = NextResponse.next({ request })
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !supabaseKey) {
+    return forward()
+  }
+
+  let supabaseResponse = forward()
 
   try {
     const supabase = createServerClient<Database>(
@@ -27,7 +34,7 @@ export async function updateSession(request: NextRequest) {
             cookiesToSet.forEach(({ name, value }) => {
               request.cookies.set(name, value)
             })
-            supabaseResponse = NextResponse.next({ request })
+            supabaseResponse = forward()
             cookiesToSet.forEach(({ name, value, options }) => {
               supabaseResponse.cookies.set(name, value, options)
             })
@@ -39,7 +46,7 @@ export async function updateSession(request: NextRequest) {
     // Refresh Supabase cookies when configured. Access is gated by fibre_session.
     await supabase.auth.getUser()
   } catch {
-    return NextResponse.next({ request })
+    return forward()
   }
 
   return supabaseResponse

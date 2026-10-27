@@ -8,7 +8,7 @@ import { CLIENT_ACCOUNT_COOKIE } from "@/lib/client-session"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { getSessionToken } from "@/lib/session"
 
-export type AppRole = "admin" | "client"
+export type AppRole = "admin" | "client" | "staff"
 export type AppUserStatus = "pending" | "active" | "rejected"
 
 export type SessionUser = {
@@ -64,7 +64,8 @@ async function userForToken(token: string | null): Promise<SessionUser | null> {
     .eq("id", session.user_id)
     .maybeSingle()
   if (userError || !user || user.status !== "active") return null
-  const project_ids = user.role === "client" ? await assignedProjectIds(user.id, user.project_id) : []
+  const project_ids =
+    user.role === "client" || user.role === "staff" ? await assignedProjectIds(user.id, user.project_id) : []
   return {
     id: user.id,
     login_id: user.login_id,
@@ -75,9 +76,19 @@ async function userForToken(token: string | null): Promise<SessionUser | null> {
   }
 }
 
+export async function getSessionUser() {
+  return userForToken(await getSessionToken())
+}
+
 export async function getAdminUser() {
-  const user = await userForToken(await getSessionToken())
+  const user = await getSessionUser()
   if (!user || user.role !== "admin") return null
+  return user
+}
+
+export async function getStaffUser() {
+  const user = await getSessionUser()
+  if (!user || user.role !== "staff") return null
   return user
 }
 

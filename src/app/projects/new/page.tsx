@@ -1,7 +1,9 @@
 import { AppHeader } from "@/components/app-header"
 import { ProjectForm } from "@/components/project-form"
+import { requireAdmin } from "@/lib/db"
 
-export default function NewProjectPage() {
+export default async function NewProjectPage() {
+  await requireAdmin()
   return (
     <>
       <AppHeader />

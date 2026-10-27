@@ -31,15 +31,21 @@ export type DetailExpense = DetailAmount & {
 export function AudienceTabs({
   expensesHref,
   summaryHref,
+  picturesHref,
   current,
 }: {
   expensesHref: string
   summaryHref: string
-  current: "expenses" | "summary"
+  /** Signed-in client portal only. Omit this on the public share page. */
+  picturesHref?: string
+  current: "expenses" | "summary" | "pictures"
 }) {
   const links = [
     { key: "expenses" as const, href: expensesHref, label: "Expenses" },
     { key: "summary" as const, href: summaryHref, label: "Detailed summary" },
+    ...(picturesHref
+      ? [{ key: "pictures" as const, href: picturesHref, label: "Progress Pictures" }]
+      : []),
   ]
   return (
     <nav className="flex gap-1 overflow-x-auto border-b border-border">

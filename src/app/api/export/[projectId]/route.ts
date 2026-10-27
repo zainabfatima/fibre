@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 
+import { getSessionUser } from "@/lib/app-session"
 import { buildSummaryWorkbook, buildWorkbook } from "@/lib/excel-export"
 import { clientSessionOwnsProject } from "@/lib/client-access"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { getSessionToken } from "@/lib/session"
 
 export const maxDuration = 60
 
@@ -15,13 +15,17 @@ export async function GET(
   const url = new URL(request.url)
   const shareToken = url.searchParams.get("t")
   const summary = url.searchParams.get("kind") === "summary"
-  const session = await getSessionToken()
+  const sessionUser = await getSessionUser()
+  if (sessionUser?.role === "staff") {
+    return NextResponse.json({ error: "Sign in required" }, { status: 401 })
+  }
+  const office = sessionUser?.role === "admin"
   const clientOwns = await clientSessionOwnsProject(projectId)
   const admin = createAdminClient()
   const { data: project } = await admin.from("projects").select("*").eq("id", projectId).maybeSingle()
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 })
   const shareAllowed = Boolean(shareToken && project.share_token === shareToken)
-  if (!session && !clientOwns && !shareAllowed) {
+  if (!office && !clientOwns && !shareAllowed) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 })
   }
 
@@ -30,7 +34,7 @@ export async function GET(
     .select("*")
     .eq("project_id", projectId)
     .order("expense_date", { ascending: false, nullsFirst: false })
-  if (!session && !clientOwns) expensesQuery = expensesQuery.eq("verification_status", "verified")
+  if (!office && !clientOwns) expensesQuery = expensesQuery.eq("verification_status", "verified")
 
   const [{ data: categories }, { data: expenses }, { data: clientPaid }, { data: payments }] = await Promise.all([
     summary ? Promise.resolve({ data: [] }) : admin.from("v_project_category_totals").select("*").eq("project_id", projectId).order("code"),

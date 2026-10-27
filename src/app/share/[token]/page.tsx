@@ -1,5 +1,6 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
+import { getStaffUser } from "@/lib/app-session"
 import { BrandLogo } from "@/components/brand-logo"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
 import { CategoryChart } from "@/components/category-chart"
@@ -17,6 +18,7 @@ export default async function SharePage({
   params: Promise<{ token: string }>
   searchParams: Promise<{ view?: string }>
 }) {
+  if (await getStaffUser()) redirect("/staff")
   const { token } = await params
   const { view } = await searchParams
   const detailed = view === "summary"

@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation"
 
-import { getClientAccountUser } from "@/lib/app-session"
+import { getClientAccountUser, getStaffUser } from "@/lib/app-session"
 import { projectsForClient } from "@/lib/client-projects"
 
 import { CategoryChart } from "@/components/category-chart"
@@ -10,9 +10,11 @@ import { type SheetRow } from "@/components/expense-sheet"
 import { ClientLoginForm } from "@/components/client-login-form"
 import { ClientProjectSwitcher } from "@/components/client-project-list"
 import { ClientShell } from "@/components/client-shell"
+import { ClientProgressGallery } from "@/components/client-progress-gallery"
 import { AudienceTabs, ExpenseDetailSummary } from "@/components/expense-detail-summary"
 import { MoneySummary } from "@/components/money-summary"
 import { findProjectByClientCode } from "@/lib/client-access"
+import { listClientProgressPictures } from "@/lib/client-progress"
 import { isClientCode } from "@/lib/client-code"
 import { getClientProjectCode } from "@/lib/client-session"
 import { formatCategory } from "@/lib/format"
@@ -33,6 +35,7 @@ export default async function ClientProjectPage({
   params: Promise<{ code: string }>
   searchParams: Promise<{ view?: string }>
 }) {
+  if (await getStaffUser()) redirect("/staff")
   const { code } = await params
   const { view } = await searchParams
   const detailed = view === "summary"
@@ -64,6 +67,36 @@ export default async function ClientProjectPage({
         </ClientShell>
       )
     }
+  }
+
+  if (view === "pictures") {
+    const [portalProjects, pictures] = await Promise.all([
+      account && account.project_ids.length > 1 ? projectsForClient(account.project_ids) : Promise.resolve([]),
+      listClientProgressPictures(project.id),
+    ])
+    return (
+      <ClientShell leave>
+        <div className="px-4 pt-2">
+          {portalProjects.length > 1 ? (
+            <ClientProjectSwitcher
+              projects={portalProjects.flatMap((item) => (item.code ? [{ code: item.code, name: item.name }] : []))}
+              currentCode={code}
+            />
+          ) : null}
+          <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
+          <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
+        </div>
+        <div className="px-4">
+          <AudienceTabs
+            expensesHref={`/client/${code}`}
+            summaryHref={`/client/${code}?view=summary`}
+            picturesHref={`/client/${code}?view=pictures`}
+            current="pictures"
+          />
+        </div>
+        <ClientProgressGallery pictures={pictures} />
+      </ClientShell>
+    )
   }
 
   const admin = createAdminClient()
@@ -164,6 +197,7 @@ export default async function ClientProjectPage({
           <AudienceTabs
             expensesHref={`/client/${code}`}
             summaryHref={`/client/${code}?view=summary`}
+            picturesHref={`/client/${code}?view=pictures`}
             current={detailed ? "summary" : "expenses"}
           />
         </div>

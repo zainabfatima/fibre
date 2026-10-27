@@ -440,7 +440,7 @@ export type Database = {
           email: string | null
           password_hash: string | null
           password_encrypted: string | null
-          role: "admin" | "client"
+          role: "admin" | "client" | "staff"
           status: "pending" | "active" | "rejected"
           project_id: string | null
           requested_project_name: string | null
@@ -454,7 +454,7 @@ export type Database = {
           email?: string | null
           password_hash?: string | null
           password_encrypted?: string | null
-          role?: "admin" | "client"
+          role?: "admin" | "client" | "staff"
           status?: "pending" | "active" | "rejected"
           project_id?: string | null
           requested_project_name?: string | null
@@ -468,7 +468,7 @@ export type Database = {
           email?: string | null
           password_hash?: string | null
           password_encrypted?: string | null
-          role?: "admin" | "client"
+          role?: "admin" | "client" | "staff"
           status?: "pending" | "active" | "rejected"
           project_id?: string | null
           requested_project_name?: string | null

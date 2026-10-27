@@ -72,6 +72,14 @@ export async function signIn(
     redirect((await requestIsZainab()) ? "/zainab" : "/")
   }
 
+  if (user.role === "staff") {
+    const token = await createSession(user.id)
+    jar.set(SESSION_COOKIE, token, sessionCookieOptions(SESSION_SECONDS))
+    jar.set(CLIENT_ACCOUNT_COOKIE, "", { ...clientCookieOptions(), maxAge: 0 })
+    jar.set(CLIENT_PROJECT_COOKIE, "", { ...clientCookieOptions(), maxAge: 0 })
+    redirect("/staff")
+  }
+
   const projectIds = await assignedProjectIds(user.id, user.project_id)
   if (projectIds.length === 0) return { error: "No project is assigned to this account." }
   const projects = await projectsForClient(projectIds)

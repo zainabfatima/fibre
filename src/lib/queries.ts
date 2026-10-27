@@ -148,8 +148,11 @@ export async function listBudgets(projectId: string) {
   return data ?? []
 }
 
-export async function listProgressPictures(projectId: string) {
-  const supabase = await requireAdmin()
+/** Same signed-url batching the office progress page uses. Caller must already allow this project. */
+export async function listSignedProgressPictures(
+  supabase: ReturnType<typeof createAdminClient>,
+  projectId: string,
+) {
   const { data, error } = await supabase
     .from("progress_pictures")
     .select("id, category_id, file_path, created_at")
@@ -172,6 +175,11 @@ export async function listProgressPictures(projectId: string) {
     createdAt: row.created_at,
     url: urls.get(row.file_path) ?? null,
   }))
+}
+
+export async function listProgressPictures(projectId: string) {
+  const supabase = await requireAdmin()
+  return listSignedProgressPictures(supabase, projectId)
 }
 
 export async function signStoragePath(

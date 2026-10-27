@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation"
 
+import { getClientAccountUser, getStaffUser } from "@/lib/app-session"
 import { ClientLoginForm } from "@/components/client-login-form"
 import { ClientProjectList } from "@/components/client-project-list"
 import { ClientShell } from "@/components/client-shell"
-import { getClientAccountUser } from "@/lib/app-session"
 import { projectsForClient } from "@/lib/client-projects"
 import { getClientProjectCode } from "@/lib/client-session"
 
@@ -15,6 +15,7 @@ export const metadata = {
 }
 
 export default async function ClientHomePage() {
+  if (await getStaffUser()) redirect("/staff")
   const account = await getClientAccountUser()
   if (account) {
     const projects = await projectsForClient(account.project_ids)

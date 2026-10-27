@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { deleteSession, getAdminUser, sessionCookieOptions } from "@/lib/app-session"
+import { deleteSession, getSessionUser, sessionCookieOptions } from "@/lib/app-session"
 import { SESSION_COOKIE, getSessionToken } from "@/lib/session"
 
 export const dynamic = "force-dynamic"
@@ -9,9 +9,12 @@ export const dynamic = "force-dynamic"
  * not allowed during Server Component render, so requireAdmin sends the browser here. */
 export async function GET(request: Request) {
   const zainab = new URL(request.url).searchParams.get("next") === "zainab"
-  const user = await getAdminUser()
-  if (user) {
+  const user = await getSessionUser()
+  if (user?.role === "admin") {
     return NextResponse.redirect(new URL(zainab ? "/zainab" : "/", request.url))
+  }
+  if (user?.role === "staff") {
+    return NextResponse.redirect(new URL("/staff", request.url))
   }
 
   const token = await getSessionToken()

@@ -33,17 +33,51 @@ type SignupRequest = {
   suggestedProjectId: string
 }
 
+type AccountRole = "admin" | "client" | "staff"
+
 type AccountRow = {
   id: string
   login_id: string
   email: string | null
-  role: "admin" | "client"
+  role: AccountRole
   project_ids: string[]
 }
 
 const initial: UserFormState = { error: null, message: null }
 const fieldClass =
   "h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+
+function accountRole(value: string): AccountRole {
+  if (value === "admin" || value === "staff" || value === "client") return value
+  return "client"
+}
+
+function RoleSelect({
+  id,
+  role,
+  onChange,
+  disabled,
+}: {
+  id: string
+  role: AccountRole
+  onChange: (role: AccountRole) => void
+  disabled?: boolean
+}) {
+  return (
+    <select
+      id={id}
+      name="role"
+      value={role}
+      disabled={disabled}
+      onChange={(event) => onChange(accountRole(event.target.value))}
+      className={fieldClass}
+    >
+      <option value="client">Client view of assigned projects</option>
+      <option value="staff">Staff, progress pictures for assigned projects</option>
+      <option value="admin">Admin, full access</option>
+    </select>
+  )
+}
 
 function Notice({ state }: { state: UserFormState }) {
   if (state.error) {
@@ -200,7 +234,7 @@ function DeleteUserButton({ userId, loginId }: { userId: string; loginId: string
 
 function AddAccount({ projects }: { projects: ProjectOption[] }) {
   const [state, action, pending] = useActionState(addAccount, initial)
-  const [role, setRole] = useState<"client" | "admin">("client")
+  const [role, setRole] = useState<AccountRole>("client")
   return (
     <form action={action} autoComplete="off" className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <h2 className="font-medium">Add a user</h2>
@@ -219,20 +253,16 @@ function AddAccount({ projects }: { projects: ProjectOption[] }) {
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="new-role">Access</Label>
-          <select
-            id="new-role"
-            name="role"
-            value={role}
-            onChange={(event) => setRole(event.target.value === "admin" ? "admin" : "client")}
-            className={fieldClass}
-          >
-            <option value="client">Client view of assigned projects</option>
-            <option value="admin">Admin, full access</option>
-          </select>
+          <RoleSelect id="new-role" role={role} onChange={setRole} />
         </div>
-        {role === "client" ? (
+        {role === "client" || role === "staff" ? (
           <div className="flex flex-col gap-2 sm:col-span-2">
             <Label htmlFor="new-project">Projects</Label>
+            {role === "staff" ? (
+              <p className="text-sm text-muted-foreground">
+                This person can upload progress pictures for the checked projects.
+              </p>
+            ) : null}
             <ProjectChecks id="new-project" projects={projects} />
           </div>
         ) : null}
@@ -254,7 +284,7 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
   const [mailState, mailAction, mailing] = useActionState(resendAccount, initial)
   const [loginId, setLoginId] = useState(account.login_id)
   const [email, setEmail] = useState(account.email ?? "")
-  const [role, setRole] = useState<"admin" | "client">(account.role)
+  const [role, setRole] = useState<AccountRole>(account.role)
   const [projectIds, setProjectIds] = useState(account.project_ids)
   const [password, setPassword] = useState("")
   const locked = account.login_id === "fibre"
@@ -271,12 +301,14 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
 
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-      {account.role === "client" ? (
+      {account.role === "admin" ? (
+        <p className="text-sm text-muted-foreground">Admin, full access</p>
+      ) : (
         <p className="text-sm text-muted-foreground">
+          {account.role === "staff" ? "Staff" : "Client"}
+          {" · "}
           {assignedNames.length > 0 ? assignedNames.join(", ") : "No projects assigned"}
         </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">Admin, full access</p>
       )}
       <form action={saveAction} autoComplete="off" className="flex flex-col gap-3">
         <input type="hidden" name="userId" value={account.id} />
@@ -308,17 +340,12 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={`account-role-${account.id}`}>Access</Label>
-            <select
+            <RoleSelect
               id={`account-role-${account.id}`}
-              name="role"
-              value={role}
+              role={role}
               disabled={locked}
-              onChange={(event) => setRole(event.target.value === "admin" ? "admin" : "client")}
-              className={fieldClass}
-            >
-              <option value="client">Client view of assigned projects</option>
-              <option value="admin">Admin, full access</option>
-            </select>
+              onChange={setRole}
+            />
             {locked ? <input type="hidden" name="role" value="admin" /> : null}
           </div>
           <div className="flex flex-col gap-2">
@@ -333,9 +360,14 @@ function AccountCard({ account, projects }: { account: AccountRow; projects: Pro
               placeholder="Leave blank to keep"
             />
           </div>
-          {role === "client" ? (
+          {role === "client" || role === "staff" ? (
             <div className="flex flex-col gap-2 sm:col-span-2">
               <Label htmlFor={`account-project-${account.id}`}>Projects</Label>
+              {role === "staff" ? (
+                <p className="text-sm text-muted-foreground">
+                  This person can upload progress pictures for the checked projects.
+                </p>
+              ) : null}
               <ProjectChecks
                 id={`account-project-${account.id}`}
                 projects={projects}
