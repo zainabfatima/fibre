@@ -12,7 +12,7 @@ export function ClientShell({
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-30 border-b-4 border-primary bg-card pt-[env(safe-area-inset-top)] shadow-sm">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-3 py-2 sm:px-4">
+        <div className={`mx-auto flex w-full items-center justify-between gap-2 py-2 ${leave ? "px-4 sm:px-6" : "max-w-6xl px-4 sm:px-6"}`}>
           <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <BrandLogo href="/client" />
             <p className="min-w-0 text-[15px] font-semibold leading-tight break-words sm:text-lg">
@@ -28,7 +28,7 @@ export function ClientShell({
           ) : null}
         </div>
       </header>
-      <main className={`mx-auto flex w-full flex-col gap-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:py-6 ${leave ? "max-w-7xl" : "max-w-6xl px-3 sm:px-4"}`}>
+      <main className={`mx-auto flex w-full flex-col gap-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:py-6 ${leave ? "" : "max-w-6xl px-4 sm:px-6"}`}>
         {children}
       </main>
     </div>

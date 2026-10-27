@@ -193,7 +193,7 @@ export function CategorySheets({
   }
 
   return (
-    <div className="flex flex-col gap-1 px-3 pb-2 sm:gap-4 sm:px-4">
+    <div className={`flex flex-col gap-1 pb-2 sm:gap-4 ${columns === "brief" ? "px-4 sm:px-6" : "px-3 sm:px-4"}`}>
       {shown.map(({ category, rows: sectionRows }) => (
         <CategoryBlock
           key={category.id}
@@ -588,7 +588,7 @@ function CategoryBlock({
               {brief ? (
                 <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_auto] items-start gap-x-3 text-sm">
                   <p>{row.date || "No date"}</p>
-                  <p className="leading-snug break-words">{row.description || "—"}</p>
+                  <p className="min-w-0 leading-snug break-words whitespace-normal">{row.description || "—"}</p>
                   <AmountInput
                     row={row}
                     highlighted={matchIds.includes(row.id)}
@@ -796,14 +796,21 @@ function CategoryBlock({
             <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} fullWidth />
           </div>
         </div>
-        <div className="hidden overflow-x-auto md:block">
-          <table className={`w-full text-sm ${brief ? "" : "min-w-[1400px]"}`}>
+        <div className={brief ? "hidden md:block" : "hidden overflow-x-auto md:block"}>
+          <table className={`w-full ${brief ? "table-fixed text-base" : "min-w-[1400px] text-sm"}`}>
+            {brief ? (
+              <colgroup>
+                <col className="w-36" />
+                <col />
+                <col className="w-40" />
+              </colgroup>
+            ) : null}
             <thead>
-              <tr className="border-b border-border text-left text-xs">
-                <th className="px-3 py-2 font-medium">Date</th>
+              <tr className={`border-b border-border text-left ${brief ? "text-sm" : "text-xs"}`}>
+                <th className={brief ? "px-4 py-3 font-medium" : "px-3 py-2 font-medium"}>Date</th>
                 {brief ? null : <th className="px-3 py-2 font-medium">Vendor</th>}
-                <th className="px-3 py-2 font-medium">Description</th>
-                <th className="px-3 py-2 font-medium">Amount</th>
+                <th className={brief ? "px-4 py-3 font-medium" : "px-3 py-2 font-medium"}>Description</th>
+                <th className={brief ? "px-4 py-3 text-right font-medium" : "px-3 py-2 font-medium"}>Amount</th>
                 {brief ? null : <th className="px-3 py-2 font-medium">Receipt</th>}
                 {brief || readOnly ? null : (
                   <>
@@ -856,16 +863,16 @@ function CategoryBlock({
                   data-expense-id={row.id}
                   className={`scroll-mt-48 border-b border-border/70 ${rowSurface(!readOnly && (isDuplicatePair(row, allRows) || needsReturnConfirmation(row.amount, row.returnConfirmed)), matchIds.includes(row.id), matchIds[activeIndex] === row.id)}`}
                 >
-                  <td className="px-3 py-2 whitespace-nowrap">{row.date || "—"}</td>
+                  <td className={brief ? "px-4 py-3 align-top whitespace-nowrap" : "px-3 py-2 whitespace-nowrap"}>{row.date || "—"}</td>
                   {brief ? null : <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>}
-                  <td className="px-3 py-2">
+                  <td className={brief ? "min-w-0 px-4 py-3 align-top whitespace-normal" : "px-3 py-2"}>
                     {brief ? (
-                      <span className="block break-words">{row.description || "—"}</span>
+                      <span className="block max-w-xl leading-snug break-words whitespace-normal">{row.description || "—"}</span>
                     ) : (
                       <DescriptionInput row={row} readOnly={readOnly} onDescription={onDescription} />
                     )}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className={brief ? "px-4 py-3 align-top text-right whitespace-nowrap" : "px-3 py-2"}>
                     <AmountInput
                       row={row}
                       highlighted={matchIds.includes(row.id)}
@@ -1011,12 +1018,12 @@ function CategoryBlock({
                 </Fragment>
               ))}
               <tr className={`font-medium ${overBy ? "bg-red-100 text-red-800" : "bg-muted/60"}`}>
-                <td className="px-3 py-2" colSpan={brief ? 2 : 3}>
+                <td className={brief ? "px-4 py-3" : "px-3 py-2"} colSpan={brief ? 2 : 3}>
                   Spent
                   {brief && overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}
                   {brief ? <CategoryPdfLink projectId={projectId} categoryKey={categoryKey} title={title} needs={needs} /> : null}
                 </td>
-                <td className={`px-3 py-2 tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
+                <td className={`${brief ? "px-4 py-3 text-right" : "px-3 py-2"} tabular-nums ${returnAmountClass(centsToMoney(spentCents))}`}>{total}</td>
                 {trailingColumns > 0 ? (
                   <td className="px-3 py-2" colSpan={trailingColumns}>
                     {overBy ? <p className="font-medium text-red-700">Over budget by {overBy}</p> : null}

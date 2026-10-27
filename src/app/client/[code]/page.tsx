@@ -76,7 +76,7 @@ export default async function ClientProjectPage({
     ])
     return (
       <ClientShell leave>
-        <div className="px-4 pt-2">
+        <div className="px-4 pt-2 sm:px-6">
           {portalProjects.length > 1 ? (
             <ClientProjectSwitcher
               projects={portalProjects.flatMap((item) => (item.code ? [{ code: item.code, name: item.name }] : []))}
@@ -86,7 +86,7 @@ export default async function ClientProjectPage({
           <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
           <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
         </div>
-        <div className="px-4">
+        <div className="px-4 sm:px-6">
           <AudienceTabs
             expensesHref={`/client/${code}`}
             summaryHref={`/client/${code}?view=summary`}
@@ -183,7 +183,7 @@ export default async function ClientProjectPage({
   return (
     <ClientShell leave>
       <ExpenseSearchProvider categories={sheetCategories} rows={rows}>
-        <div className="px-4 pt-2">
+        <div className="px-4 pt-2 sm:px-6">
           {portalProjects.length > 1 ? (
             <ClientProjectSwitcher
               projects={portalProjects.flatMap((item) => (item.code ? [{ code: item.code, name: item.name }] : []))}
@@ -193,7 +193,7 @@ export default async function ClientProjectPage({
           <h1 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">{project.name}</h1>
           <p className="text-sm break-words text-muted-foreground">{project.address || "No address"}</p>
         </div>
-        <div className="px-4">
+        <div className="px-4 sm:px-6">
           <AudienceTabs
             expensesHref={`/client/${code}`}
             summaryHref={`/client/${code}?view=summary`}
@@ -202,7 +202,7 @@ export default async function ClientProjectPage({
           />
         </div>
         {detailed ? (
-          <div className="px-4 pb-6">
+          <div className="px-4 pb-6 sm:px-6">
             <ExpenseDetailSummary
               percent={summary?.builder_fee_percent ?? 0}
               expenseColumns="full"
@@ -241,7 +241,7 @@ export default async function ClientProjectPage({
           </div>
         ) : (
         <>
-        <div className="grid gap-4 px-4">
+        <div className="grid gap-4 px-4 sm:px-6">
           <MoneySummary
             spentCents={totalExpenseCents(billableCents, builderFeeCents)}
             receivedCents={sumCents((payments ?? []).map((payment) => payment.amount))}
@@ -251,8 +251,8 @@ export default async function ClientProjectPage({
             breakdown={false}
           />
         </div>
-        <ExpenseAmountSearchBar />
-        <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
+        <ExpenseAmountSearchBar className="sticky top-[calc(env(safe-area-inset-top)+7.25rem)] z-20 mx-4 mt-3 rounded-xl bg-background/95 p-2 shadow-sm ring-1 ring-foreground/10 backdrop-blur sm:top-[calc(env(safe-area-inset-top)+6rem)] sm:mx-6" />
+        <section className="mx-4 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:mx-6 sm:p-4">
           <h2 className="mb-4 font-medium">Expense by category</h2>
           <CategoryChart rows={chart} />
         </section>
@@ -266,7 +266,7 @@ export default async function ClientProjectPage({
           columns="brief"
         />
         {(clientPaid ?? []).length > 0 ? (
-          <section className="mx-4 mb-6">
+          <section className="mx-4 mb-6 sm:mx-6">
             <h2 className="font-medium text-violet-950">Expense paid by client</h2>
             <p className="mb-2 text-sm text-muted-foreground">
               Subtracted in the balance. The builder fee still applies to these amounts.
