@@ -82,7 +82,7 @@ export async function listExpenseRows(projectId: string) {
     .from("v_expense_rows")
     .select("*")
     .eq("project_id", projectId)
-    .order("expense_date", { ascending: false, nullsFirst: false })
+    .order("display_order", { ascending: true })
   if (error) throw new Error(error.message)
   return data ?? []
 }

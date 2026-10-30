@@ -248,7 +248,7 @@ export async function buildSummaryWorkbook(input: {
     const head = sheet.addRow([name])
     head.font = { bold: true }
     sheet.addRow(["Date and company", "Amount", null]).font = { bold: true }
-    const rows = [...group.rows].sort((a, b) => (a.expense_date ?? "9999").localeCompare(b.expense_date ?? "9999"))
+    const rows = group.rows
     let categoryCents = 0
     for (const row of rows) {
       const amountCents = moneyToCents(row.amount)

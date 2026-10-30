@@ -41,7 +41,7 @@ export async function GET(
       uncategorized
         ? Promise.resolve({ data: null, error: null })
         : admin.from("categories").select("id, code, name").eq("id", categoryNumeric).maybeSingle(),
-      expensesQuery.order("expense_date", { ascending: false, nullsFirst: false }),
+      expensesQuery.order("display_order", { ascending: true }),
     ])
 
   if (projectError || categoryResult.error || expenseError) {

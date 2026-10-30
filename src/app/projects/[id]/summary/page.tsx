@@ -20,16 +20,14 @@ export default async function ProjectSummaryPage({
     listClientPayments(id),
     getSummary(id),
   ])
-  const expenseLines = dated<DetailExpense>(
-    expenses.map((row) => ({
-      id: row.id,
-      date: row.expense_date,
-      label: row.vendor?.trim() || "Receipt",
-      category: row.category_code != null && row.category_name ? formatCategory(row.category_code, row.category_name) : "Uncategorized",
-      categorySort: row.category_code ?? 9999,
-      amountCents: moneyToCents(row.amount),
-    })),
-  )
+  const expenseLines: DetailExpense[] = expenses.map((row) => ({
+    id: row.id,
+    date: row.expense_date,
+    label: row.vendor?.trim() || "Receipt",
+    category: row.category_code != null && row.category_name ? formatCategory(row.category_code, row.category_name) : "Uncategorized",
+    categorySort: row.category_code ?? 9999,
+    amountCents: moneyToCents(row.amount),
+  }))
   const clientLines = dated(
     clientPaid.map((row) => ({
       id: row.id,

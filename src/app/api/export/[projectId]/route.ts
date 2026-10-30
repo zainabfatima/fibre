@@ -33,7 +33,7 @@ export async function GET(
     .from("v_expense_rows")
     .select("*")
     .eq("project_id", projectId)
-    .order("expense_date", { ascending: false, nullsFirst: false })
+    .order("display_order", { ascending: true })
   if (!office && !clientOwns) expensesQuery = expensesQuery.eq("verification_status", "verified")
 
   const [{ data: categories }, { data: expenses }, { data: clientPaid }, { data: payments }] = await Promise.all([

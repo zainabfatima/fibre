@@ -281,6 +281,7 @@ export type Database = {
           reimbursement_name: string | null
           qb_status: boolean
           paid_by_client: boolean
+          display_order: number
           created_at: string
           updated_at: string
           created_by: string | null
@@ -322,6 +323,7 @@ export type Database = {
           reimbursement_name?: string | null
           qb_status?: boolean
           paid_by_client?: boolean
+          display_order?: number
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -363,6 +365,7 @@ export type Database = {
           reimbursement_name?: string | null
           qb_status?: boolean
           paid_by_client?: boolean
+          display_order?: number
           created_at?: string
           updated_at?: string
           created_by?: string | null
@@ -557,6 +560,7 @@ export type Database = {
           reimbursement_name: string | null
           qb_status: boolean
           paid_by_client: boolean
+          display_order: number
           created_at: string
           updated_at: string
           created_by: string | null

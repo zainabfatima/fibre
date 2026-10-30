@@ -10,7 +10,7 @@ import { ReceiptRecrop } from "@/components/receipt-recrop"
 import { ReceiptRetake } from "@/components/receipt-retake"
 import { uploadInvoiceFile } from "@/app/actions/invoices"
 import { CategoryBudgetHeading } from "@/components/category-budget-heading"
-import { useExpenseSearch } from "@/components/expense-amount-search"
+import { DescriptionColumnSearch, useExpenseSearch } from "@/components/expense-amount-search"
 import { StatusBadge } from "@/components/status-badge"
 import type { SheetRow } from "@/components/expense-sheet"
 import { focusAmountField, ReturnConfirmDialog, ReturnNotice } from "@/components/return-confirm"
@@ -62,25 +62,27 @@ export function CategorySheets({
   const matchIds = useMemo(() => search?.matchIds ?? [], [search?.matchIds])
   const activeIndex = search?.activeIndex ?? 0
   const searchQuery = search?.query ?? ""
-  const seenQuery = useRef(searchQuery)
+  const descriptionQuery = search?.descriptionQuery ?? ""
+  const searchKey = `${searchQuery}\n${descriptionQuery}`
+  const seenQuery = useRef(searchKey)
 
   useEffect(() => {
-    const trimmed = searchQuery.trim()
-    if (!trimmed || matchIds.length === 0) {
-      seenQuery.current = searchQuery
+    const searching = Boolean(searchQuery.trim() || descriptionQuery.trim())
+    if (!searching || matchIds.length === 0) {
+      seenQuery.current = searchKey
       return
     }
     const id = matchIds[activeIndex]
     if (!id) return
-    const delay = seenQuery.current === searchQuery ? 0 : 200
-    seenQuery.current = searchQuery
+    const delay = seenQuery.current === searchKey ? 0 : 200
+    seenQuery.current = searchKey
     const timer = window.setTimeout(() => {
       const nodes = document.querySelectorAll<HTMLElement>(`[data-expense-id="${CSS.escape(id)}"]`)
       const visible = Array.from(nodes).find((node) => node.getClientRects().length > 0)
       visible?.scrollIntoView({ behavior: "smooth", block: "center" })
     }, delay)
     return () => window.clearTimeout(timer)
-  }, [searchQuery, matchIds, activeIndex])
+  }, [searchKey, searchQuery, descriptionQuery, matchIds, activeIndex])
 
   async function persistAmount(row: SheetRow, amount: string, success: string) {
     const result = await updateExpenseFields({ projectId, expenseId: row.id, amount })
@@ -360,6 +362,8 @@ function AmountInput({
   }
   const shown = draft ?? row.amount
   const signed = centsToMoney(moneyToCents(row.amount))
+  const search = useExpenseSearch()
+  const paintAmount = highlighted && Boolean(search?.query.trim())
   if (readOnly) {
     return <p className={`text-right font-semibold tabular-nums ${returnAmountClass(signed)}`}>{signed}</p>
   }
@@ -377,7 +381,7 @@ function AmountInput({
         event.preventDefault()
         event.currentTarget.blur()
       }}
-      className={`${className} ${returnAmountClass(shown)} ${highlighted ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
+      className={`${className} ${returnAmountClass(shown)} ${paintAmount ? "border-primary bg-amber-200 font-semibold dark:bg-amber-900" : "border-input bg-transparent"}`}
     />
   )
 }
@@ -393,9 +397,10 @@ function DescriptionInput({
   onDescription: (row: SheetRow, description: string) => void
   className?: string
 }) {
+  const matchClass = useDescriptionMatchClass(row.id)
   if (readOnly) {
     return (
-      <span className="block max-w-48 truncate" title={row.description ?? undefined}>
+      <span className={`block max-w-48 truncate ${matchClass}`} title={row.description ?? undefined}>
         {row.description || "—"}
       </span>
     )
@@ -417,9 +422,24 @@ function DescriptionInput({
         event.preventDefault()
         event.currentTarget.blur()
       }}
-      className={className ?? "h-9 w-full min-w-36 rounded-lg border border-input bg-transparent px-2 text-sm"}
+      className={`${className ?? "h-9 w-full min-w-36 rounded-lg border px-2 text-sm"} border-input ${matchClass || "bg-transparent"}`}
     />
   )
+}
+
+function useDescriptionMatchClass(id: string) {
+  const search = useExpenseSearch()
+  const terms = search?.descriptionQuery.trim()
+  if (!terms || !search?.matchIds.includes(id)) return ""
+  const active = search.matchIds[search.activeIndex] === id
+  return active
+    ? "rounded bg-amber-200 ring-2 ring-primary dark:bg-amber-900"
+    : "rounded bg-amber-100 dark:bg-amber-950"
+}
+
+function DescriptionReadout({ row, className }: { row: SheetRow; className?: string }) {
+  const matchClass = useDescriptionMatchClass(row.id)
+  return <span className={`${className ?? ""} ${matchClass}`}>{row.description || "—"}</span>
 }
 
 function YesNoSelect({
@@ -577,7 +597,10 @@ function CategoryBlock({
           {brief ? (
             <div className="grid grid-cols-[7.75rem_minmax(0,1fr)_auto] gap-x-5 border-b border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold">
               <span className="text-sky-800">Date</span>
-              <span className="text-orange-800">Description</span>
+              <label className="grid min-w-0 gap-1">
+                <span className="text-orange-800">Description</span>
+                <DescriptionColumnSearch />
+              </label>
               <span className="text-right text-emerald-800">Amount</span>
             </div>
           ) : null}
@@ -590,7 +613,7 @@ function CategoryBlock({
               {brief ? (
                 <div className="grid grid-cols-[7.75rem_minmax(0,1fr)_auto] items-start gap-x-5 text-sm">
                   <p>{row.date || "No date"}</p>
-                  <p className="min-w-0 leading-snug break-words whitespace-normal">{row.description || "—"}</p>
+                  <DescriptionReadout row={row} className="min-w-0 leading-snug break-words whitespace-normal" />
                   <AmountInput
                     row={row}
                     highlighted={matchIds.includes(row.id)}
@@ -650,7 +673,7 @@ function CategoryBlock({
                     row.description ? (
                       <p className="mt-1 line-clamp-2 text-sm leading-snug break-words">
                         <span className="sr-only">Description: </span>
-                        {row.description}
+                        <DescriptionReadout row={row} />
                       </p>
                     ) : null
                   ) : (
@@ -811,7 +834,12 @@ function CategoryBlock({
               <tr className={`text-left ${brief ? "border-b border-sky-200 bg-sky-50 text-sm" : "border-b border-border text-xs"}`}>
                 <th className={brief ? "px-4 py-3 pr-8 font-bold text-sky-800" : "px-3 py-2 font-medium"}>Date</th>
                 {brief ? null : <th className="px-3 py-2 font-medium">Vendor</th>}
-                <th className={brief ? "px-4 py-3 font-bold text-orange-800" : "px-3 py-2 font-medium"}>Description</th>
+                <th className={brief ? "px-4 py-3 font-bold text-orange-800" : "px-3 py-2 font-medium"}>
+                  <label className="grid gap-1">
+                    <span>Description</span>
+                    <DescriptionColumnSearch />
+                  </label>
+                </th>
                 <th className={brief ? "px-4 py-3 text-right font-bold text-emerald-800" : "px-3 py-2 font-medium"}>Amount</th>
                 {brief ? null : <th className="px-3 py-2 font-medium">Receipt</th>}
                 {brief || readOnly ? null : (
@@ -869,7 +897,7 @@ function CategoryBlock({
                   {brief ? null : <td className="max-w-40 truncate px-3 py-2">{row.vendor || "—"}</td>}
                   <td className={brief ? "min-w-0 px-4 py-3 align-top whitespace-normal" : "px-3 py-2"}>
                     {brief ? (
-                      <span className="block max-w-xl leading-snug break-words whitespace-normal">{row.description || "—"}</span>
+                      <DescriptionReadout row={row} className="block max-w-xl leading-snug break-words whitespace-normal" />
                     ) : (
                       <DescriptionInput row={row} readOnly={readOnly} onDescription={onDescription} />
                     )}

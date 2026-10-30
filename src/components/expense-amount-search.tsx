@@ -10,6 +10,8 @@ type CategoryRef = { id: number }
 type ExpenseSearchValue = {
   query: string
   setQuery: (value: string) => void
+  descriptionQuery: string
+  setDescriptionQuery: (value: string) => void
   matchIds: string[]
   activeIndex: number
   goNext: () => void
@@ -28,11 +30,13 @@ export function ExpenseSearchProvider({
   children: ReactNode
 }) {
   const [query, setQueryState] = useState("")
+  const [descriptionQuery, setDescriptionQueryState] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
 
   const matchIds = useMemo(() => {
-    const trimmed = query.trim()
-    if (!trimmed) return []
+    const amountQuery = query.trim()
+    const terms = descriptionQuery.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (!amountQuery && terms.length === 0) return []
     const ordered: SheetRow[] = []
     for (const category of categories) {
       for (const row of rows) {
@@ -44,18 +48,30 @@ export function ExpenseSearchProvider({
     }
     const exact: string[] = []
     const partial: string[] = []
+    const textOnly: string[] = []
     for (const row of ordered) {
-      const kind = amountMatchKind(trimmed, row.amount)
+      const haystack = (row.description ?? "").toLowerCase()
+      if (terms.length > 0 && !terms.every((term) => haystack.includes(term))) continue
+      if (!amountQuery) {
+        textOnly.push(row.id)
+        continue
+      }
+      const kind = amountMatchKind(amountQuery, row.amount)
       if (kind === "exact") exact.push(row.id)
       else if (kind === "partial") partial.push(row.id)
     }
-    return [...exact, ...partial]
-  }, [categories, rows, query])
+    return [...exact, ...partial, ...textOnly]
+  }, [categories, rows, query, descriptionQuery])
 
   const index = matchIds.length === 0 ? 0 : Math.min(activeIndex, matchIds.length - 1)
 
   function setQuery(value: string) {
     setQueryState(value)
+    setActiveIndex(0)
+  }
+
+  function setDescriptionQuery(value: string) {
+    setDescriptionQueryState(value)
     setActiveIndex(0)
   }
 
@@ -70,10 +86,10 @@ export function ExpenseSearchProvider({
   }
 
   const value = useMemo(
-    () => ({ query, setQuery, matchIds, activeIndex: index, goNext, goPrev }),
-    // setQuery/goNext/goPrev close over the latest query and matches.
+    () => ({ query, setQuery, descriptionQuery, setDescriptionQuery, matchIds, activeIndex: index, goNext, goPrev }),
+    // setQuery/setDescriptionQuery/goNext/goPrev close over the latest query and matches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [query, matchIds, index],
+    [query, descriptionQuery, matchIds, index],
   )
 
   return <ExpenseSearchContext.Provider value={value}>{children}</ExpenseSearchContext.Provider>
@@ -83,13 +99,41 @@ export function useExpenseSearch() {
   return useContext(ExpenseSearchContext)
 }
 
-export function ExpenseAmountSearchBar({ className }: { className?: string }) {
+export function DescriptionColumnSearch() {
   const search = useExpenseSearch()
   if (!search) return null
-  const { query, setQuery, matchIds, goNext, goPrev } = search
-  const trimmed = query.trim()
-  const count = trimmed ? matchIds.length : 0
+  return (
+    <input
+      value={search.descriptionQuery}
+      onChange={(event) => search.setDescriptionQuery(event.target.value)}
+      placeholder="Search"
+      aria-label="Search description"
+      autoComplete="off"
+      autoCorrect="off"
+      enterKeyHint="search"
+      className="h-8 w-full min-w-0 rounded-md border border-input bg-card px-2 text-sm font-normal text-foreground"
+    />
+  )
+}
+
+export function ExpenseAmountSearchBar({
+  className,
+  descriptionOnMobile = false,
+}: {
+  className?: string
+  /** Phone layout has no description column header, so the search sits with the amount search. */
+  descriptionOnMobile?: boolean
+}) {
+  const search = useExpenseSearch()
+  if (!search) return null
+  const { query, setQuery, descriptionQuery, setDescriptionQuery, matchIds, goNext, goPrev } = search
+  const amountTrimmed = query.trim()
+  const descriptionTrimmed = descriptionQuery.trim()
+  const searching = Boolean(amountTrimmed || descriptionTrimmed)
+  const count = searching ? matchIds.length : 0
   const countLabel = count === 1 ? "1 match" : `${count} matches`
+  const emptyLabel =
+    amountTrimmed && descriptionTrimmed ? "No matches" : descriptionTrimmed ? "No description matches" : "No amount matches"
 
   return (
     <div className={className ?? "sticky top-[calc(env(safe-area-inset-top)+7.25rem)] z-20 mx-3 mt-3 rounded-xl bg-background/95 p-2 shadow-sm ring-1 ring-foreground/10 backdrop-blur sm:top-[calc(env(safe-area-inset-top)+6rem)] sm:mx-4"}>
@@ -106,7 +150,21 @@ export function ExpenseAmountSearchBar({ className }: { className?: string }) {
           className="h-11 w-full rounded-lg border border-input bg-card px-3 text-[16px] tabular-nums"
         />
       </label>
-      {trimmed && count > 0 ? (
+      {descriptionOnMobile ? (
+        <label className="mt-2 grid gap-1 md:hidden">
+          <span className="sr-only">Search description</span>
+          <input
+            value={descriptionQuery}
+            onChange={(event) => setDescriptionQuery(event.target.value)}
+            placeholder="Search description"
+            autoComplete="off"
+            autoCorrect="off"
+            enterKeyHint="search"
+            className="h-11 w-full rounded-lg border border-input bg-card px-3 text-[16px]"
+          />
+        </label>
+      ) : null}
+      {searching && count > 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium" role="status">
             {countLabel}
@@ -131,9 +189,9 @@ export function ExpenseAmountSearchBar({ className }: { className?: string }) {
           ) : null}
         </div>
       ) : null}
-      {trimmed && count === 0 ? (
+      {searching && count === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground" role="status">
-          No amount matches
+          {emptyLabel}
         </p>
       ) : null}
     </div>

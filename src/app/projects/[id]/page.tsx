@@ -119,7 +119,7 @@ export default async function ProjectExpensesPage({
           breakdown={false}
         />
       </div>
-      <ExpenseAmountSearchBar />
+      <ExpenseAmountSearchBar descriptionOnMobile />
       {needs ? null : (
         <section className="m-3 rounded-xl bg-card p-3 ring-1 ring-foreground/10 sm:m-4 sm:p-4">
           <h2 className="mb-4 font-medium">Expense by category</h2>

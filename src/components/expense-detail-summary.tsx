@@ -243,7 +243,7 @@ function categoryGroups(expenses: DetailExpense[], percent: string | number) {
   return [...groups.values()]
     .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
     .map((group) => {
-      const rows = [...group.rows].sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999"))
+      const rows = group.rows
       const amountCents = rows.reduce((total, row) => total + row.amountCents, 0)
       return { name: group.name, rows, amountCents, feeCents: percentOfCents(amountCents, percent) }
     })

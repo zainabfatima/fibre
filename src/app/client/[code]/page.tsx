@@ -107,7 +107,7 @@ export default async function ClientProjectPage({
         .from("v_expense_rows")
         .select("*")
         .eq("project_id", project.id)
-        .order("expense_date", { ascending: false, nullsFirst: false }),
+        .order("display_order", { ascending: true }),
       admin.from("v_project_category_totals").select("*").eq("project_id", project.id).order("code"),
       admin.from("client_payments").select("id, received_date, amount, note").eq("project_id", project.id).order("received_date"),
       admin.from("client_paid_expenses").select("id, paid_date, amount, note").eq("project_id", project.id).order("paid_date", { ascending: false }),
