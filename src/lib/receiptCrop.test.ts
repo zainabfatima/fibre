@@ -102,27 +102,6 @@ function speckleFraction(raster: Raster) {
   return flips / Math.max(count, 1)
 }
 
-function lineBalance(raster: Raster) {
-  const rows = new Float32Array(raster.height)
-  const cols = new Float32Array(raster.width)
-  for (let y = 0; y < raster.height; y += 1) {
-    for (let x = 0; x < raster.width; x += 1) {
-      if (raster.data[(y * raster.width + x) * 4] > 80) continue
-      rows[y] += 1
-      cols[x] += 1
-    }
-  }
-  const spread = (values: Float32Array) => {
-    let mean = 0
-    for (const value of values) mean += value
-    mean /= values.length
-    let sum = 0
-    for (const value of values) sum += (value - mean) ** 2
-    return sum / values.length
-  }
-  return { rowVar: spread(rows), colVar: spread(cols) }
-}
-
 function assertContains(corners: Point[], points: Point[], label: string) {
   for (const point of points) {
     assert.equal(pointInPolygon(point, corners), true, `${label} clipped text at ${point.x},${point.y}`)
@@ -307,7 +286,7 @@ describe("receipt crop", () => {
     assertGrayscale(cropped.image)
   })
 
-  it("turns sideways writing upright", async () => {
+  it("keeps sideways writing in the shot orientation", async () => {
     const photo = create(480, 360, floor)
     const quad: Point[] = [
       { x: 80, y: 40 },
@@ -324,8 +303,10 @@ describe("receipt crop", () => {
       [150, 190, 230, 270, 310].map((x) => ({ x: x + 2, y: 160 })),
       "sideways",
     )
-    const lines = lineBalance(cropped.image)
-    assert.ok(lines.rowVar > lines.colVar * 1.3, `still sideways row ${lines.rowVar} col ${lines.colVar}`)
+    assert.ok(
+      cropped.image.width > cropped.image.height,
+      `shot was rotated to ${cropped.image.width}x${cropped.image.height}`,
+    )
     assertGrayscale(cropped.image)
     assert.ok(speckleFraction(cropped.image) < 0.1)
   })

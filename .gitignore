@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Copied from node_modules by scripts/copy-opencv.mjs before dev and build.
+/public/opencv.js
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

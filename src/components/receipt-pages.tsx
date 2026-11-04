@@ -3,21 +3,17 @@ export function ReceiptPages({
   fileType,
   pageCount = 1,
   zoom = 1,
-  rotation = 0,
 }: {
   src: string
   fileType: "image" | "pdf"
   pageCount?: number
   zoom?: number
-  rotation?: number
 }) {
-  const turn = rotation ? { transform: `rotate(${rotation}deg)` } : undefined
-
   if (fileType === "image") {
     return (
       <div style={{ width: `${zoom * 100}%` }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="Receipt" style={turn} className="h-auto w-full bg-white" />
+        <img src={src} alt="Receipt" className="h-auto w-full bg-white object-contain" />
       </div>
     )
   }
@@ -29,8 +25,7 @@ export function ReceiptPages({
         data={src}
         type="application/pdf"
         aria-label={label}
-        className="h-[70vh] min-h-80 w-full rounded-lg bg-white"
-        style={turn}
+        className="h-[70vh] min-h-80 w-full rounded-lg bg-white object-contain"
       >
         <a href={src} target="_blank" rel="noreferrer" className="underline">
           Open the PDF

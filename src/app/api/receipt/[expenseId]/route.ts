@@ -43,7 +43,7 @@ export async function GET(
 <style>
   @page { margin: 0.4in; }
   html, body { margin: 0; background: white; }
-  img { display: block; width: 100%; height: auto; }
+  img { display: block; width: 100%; height: 100vh; object-fit: contain; background: white; }
 </style>
 </head>
 <body>

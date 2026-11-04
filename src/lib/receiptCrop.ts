@@ -5,7 +5,7 @@
  * downscale → grayscale → blur → Canny → dilate → contours → 4-point quad.
  * OpenCV.js is loaded only in the browser and only adds contour candidates.
  * If it fails to load, the built-in detector still runs. The saved scan is
- * clean black and white (not a noisy threshold) and rotated so the text is upright.
+ * clean black and white (not a noisy threshold). The photo is not rotated.
  */
 
 export type Point = { x: number; y: number }
@@ -161,7 +161,7 @@ export function renderCrop(
   }
   const size = outputSize(ordered)
   const flat = warpRaster(raster, ordered, size.width, size.height)
-  const image = scaleLongSide(cleanScan(orientUpright(flat)), EXPORT_LONG_SIDE)
+  const image = scaleLongSide(cleanScan(flat), EXPORT_LONG_SIDE)
   return {
     image,
     corners: ordered,

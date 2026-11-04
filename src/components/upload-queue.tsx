@@ -400,7 +400,7 @@ export function UploadQueue({
         >
           <p className="font-medium">Drop receipts here</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Photos are cropped and straightened. A PDF is saved as the original file, so you can open that same PDF.
+            Photos are cropped to the receipt and the glare is cleaned. The picture stays in the orientation you shot. A PDF is saved as the original file.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <label

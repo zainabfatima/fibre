@@ -109,6 +109,7 @@ function drawFitted(
 ) {
   if (!sourceWidth || !sourceHeight) return
   const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
+  page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: rgb(1, 1, 1) })
   const maxW = PAGE_WIDTH - PRINT_MARGIN * 2
   const maxH = PAGE_HEIGHT - PRINT_MARGIN * 2
   const scale = Math.min(maxW / sourceWidth, maxH / sourceHeight)

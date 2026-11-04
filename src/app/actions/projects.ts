@@ -276,16 +276,21 @@ export async function deleteProject(projectId: string): Promise<ActionState> {
   for (const expense of expenses) {
     if (expense.receipt_file_path) receiptPaths.add(expense.receipt_file_path)
     if (expense.receipt_thumbnail_path) receiptPaths.add(expense.receipt_thumbnail_path)
-    if (expense.original_file_path) originalPaths.add(expense.original_file_path)
-    for (const path of stringPaths(expense.original_file_paths)) originalPaths.add(path)
+    for (const path of [expense.original_file_path, ...stringPaths(expense.original_file_paths)]) {
+      if (!path) continue
+      if (path.startsWith("originals/")) receiptPaths.add(path)
+      else originalPaths.add(path)
+    }
   }
 
-  const [listedReceipts, listedOriginals, listedInvoices] = await Promise.all([
+  const [listedReceipts, listedAudit, listedOriginals, listedInvoices] = await Promise.all([
     listStoragePaths(supabase, "receipts", project.id),
+    listStoragePaths(supabase, "receipts", `originals/${project.id}`),
     listStoragePaths(supabase, "receipt-originals", project.id),
     listStoragePaths(supabase, "invoices", project.id),
   ])
   for (const path of listedReceipts) receiptPaths.add(path)
+  for (const path of listedAudit) receiptPaths.add(path)
   for (const path of listedOriginals) originalPaths.add(path)
   for (const path of listedInvoices) invoicePaths.push(path)
 

@@ -9,6 +9,20 @@ import { requireAdmin } from "@/lib/db"
 import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
 import type { Database } from "@/types/database"
 
+function auditOriginalPath(projectId: string, id: string) {
+  return `originals/${projectId}/${id}.jpg`
+}
+
+async function removeOriginalFiles(
+  supabase: Awaited<ReturnType<typeof requireAdmin>>,
+  paths: string[],
+) {
+  const current = paths.filter((path) => path.startsWith("originals/"))
+  const legacy = paths.filter((path) => path.length > 0 && !path.startsWith("originals/"))
+  if (current.length) await supabase.storage.from("receipts").remove(current)
+  if (legacy.length) await supabase.storage.from("receipt-originals").remove(legacy)
+}
+
 function refresh(projectId: string) {
   revalidatePath("/")
   revalidatePath(`/projects/${projectId}`)
@@ -150,8 +164,8 @@ export async function saveScannedReceipt(formData: FormData) {
   const originalPaths: string[] = []
   for (let index = 0; index < originalFiles.length; index += 1) {
     const original = originalFiles[index]
-    const originalPath = `${projectId}/0/${id}${originalFiles.length > 1 ? `-p${index + 1}` : ""}.jpg`
-    const originalUpload = await supabase.storage.from("receipt-originals").upload(originalPath, Buffer.from(await original.arrayBuffer()), {
+    const originalPath = auditOriginalPath(projectId, originalFiles.length > 1 ? `${id}-p${index + 1}` : id)
+    const originalUpload = await supabase.storage.from("receipts").upload(originalPath, Buffer.from(await original.arrayBuffer()), {
       contentType: "image/jpeg",
       upsert: false,
     })
@@ -190,7 +204,7 @@ export async function saveScannedReceipt(formData: FormData) {
   })
   if (error) {
     await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
-    if (originalPaths.length) await supabase.storage.from("receipt-originals").remove(originalPaths)
+    if (originalPaths.length) await removeOriginalFiles(supabase, originalPaths)
     return { error: error.message }
   }
   const { error: hashError } = await supabase.from("receipt_page_hashes").insert(
@@ -204,7 +218,7 @@ export async function saveScannedReceipt(formData: FormData) {
   if (hashError) {
     await supabase.from("expenses").delete().eq("id", id)
     await supabase.storage.from("receipts").remove([path, thumbPath].filter(Boolean) as string[])
-    if (originalPaths.length) await supabase.storage.from("receipt-originals").remove(originalPaths)
+    if (originalPaths.length) await removeOriginalFiles(supabase, originalPaths)
     return { error: hashError.message }
   }
 
@@ -305,8 +319,8 @@ export async function retakeExpenseReceipt(formData: FormData) {
   const originalFiles = formData.getAll("original").filter((entry): entry is File => entry instanceof File && entry.size > 0)
   const originalPaths: string[] = []
   for (const original of originalFiles) {
-    const originalPath = `${projectId}/0/${crypto.randomUUID()}.jpg`
-    const originalUpload = await supabase.storage.from("receipt-originals").upload(originalPath, Buffer.from(await original.arrayBuffer()), {
+    const originalPath = auditOriginalPath(projectId, crypto.randomUUID())
+    const originalUpload = await supabase.storage.from("receipts").upload(originalPath, Buffer.from(await original.arrayBuffer()), {
       contentType: "image/jpeg",
       upsert: false,
     })
@@ -325,7 +339,7 @@ export async function retakeExpenseReceipt(formData: FormData) {
 
   async function rollbackUploads() {
     await supabase.storage.from("receipts").remove([path, thumbPath].filter((item): item is string => Boolean(item)))
-    if (originalPaths.length) await supabase.storage.from("receipt-originals").remove(originalPaths)
+    if (originalPaths.length) await removeOriginalFiles(supabase, originalPaths)
   }
 
   const patch: Database["public"]["Tables"]["expenses"]["Update"] = {
@@ -373,7 +387,7 @@ export async function retakeExpenseReceipt(formData: FormData) {
       (item): item is string => Boolean(item) && item !== path && item !== thumbPath,
     ),
   )
-  if (previousOriginals.length) await supabase.storage.from("receipt-originals").remove(previousOriginals)
+  if (previousOriginals.length) await removeOriginalFiles(supabase, previousOriginals)
 
   refresh(projectId)
   return { id: expenseId, categoryId: expense.category_id }
@@ -385,11 +399,6 @@ function storageType(path: string) {
   if (lower.endsWith(".webp")) return "image/webp"
   if (lower.endsWith(".pdf")) return "application/pdf"
   return "image/jpeg"
-}
-
-function extensionOf(path: string) {
-  const match = path.toLowerCase().match(/\.([a-z0-9]+)$/)
-  return match?.[1] || "jpg"
 }
 
 function asPathList(value: unknown) {
@@ -456,17 +465,16 @@ export async function replaceScannedFile(formData: FormData) {
 
   let originalPath: string | null = null
   if (previousBytes) {
-    const originalExt = extensionOf(receiptPath)
-    const candidate = `${projectId}/0/${expenseId}.${originalExt}`
-    const first = await supabase.storage.from("receipt-originals").upload(candidate, previousBytes, {
+    const candidate = auditOriginalPath(projectId, expenseId)
+    const first = await supabase.storage.from("receipts").upload(candidate, previousBytes, {
       contentType: storageType(receiptPath),
       upsert: false,
     })
     if (!first.error) {
       originalPath = candidate
     } else {
-      const retryPath = `${projectId}/0/${expenseId}-${crypto.randomUUID()}.${originalExt}`
-      const retry = await supabase.storage.from("receipt-originals").upload(retryPath, previousBytes, {
+      const retryPath = auditOriginalPath(projectId, `${expenseId}-${crypto.randomUUID()}`)
+      const retry = await supabase.storage.from("receipts").upload(retryPath, previousBytes, {
         contentType: storageType(receiptPath),
         upsert: false,
       })
@@ -523,7 +531,7 @@ export async function replaceScannedFile(formData: FormData) {
   const created = [nextPath, nextThumb].filter((path): path is string => Boolean(path))
   async function rollback() {
     await supabase.storage.from("receipts").remove(created)
-    if (originalPath) await supabase.storage.from("receipt-originals").remove([originalPath])
+    if (originalPath) await removeOriginalFiles(supabase, [originalPath])
   }
 
   let recordedOriginal = false
@@ -561,7 +569,7 @@ export async function replaceScannedFile(formData: FormData) {
       return { error: "Receipt not found" }
     }
     if (originalPath) {
-      await supabase.storage.from("receipt-originals").remove([originalPath])
+      await removeOriginalFiles(supabase, [originalPath])
       originalPath = null
     }
   } else if (primary.error) {
@@ -765,7 +773,7 @@ export async function deleteExpense(projectId: string, expenseId: string) {
       expense.original_file_path,
       ...(Array.isArray(expense.original_file_paths) ? expense.original_file_paths : []),
     ].filter((path): path is string => typeof path === "string" && path.length > 0)
-    if (originals.length) await supabase.storage.from("receipt-originals").remove(originals)
+    if (originals.length) await removeOriginalFiles(supabase, originals)
   }
   refresh(projectId)
   return { error: null }

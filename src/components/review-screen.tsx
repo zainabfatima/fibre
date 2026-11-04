@@ -88,7 +88,6 @@ export function ReviewScreen({
     categoryId,
   })
   const [zoom, setZoom] = useState(1)
-  const [rotation, setRotation] = useState(0)
   const [cropOpen, setCropOpen] = useState(false)
   const [retakeOpen, setRetakeOpen] = useState(false)
   const [fileStamp, setFileStamp] = useState(0)
@@ -96,7 +95,6 @@ export function ReviewScreen({
   if (zoomExpenseId !== expenseId) {
     setZoomExpenseId(expenseId)
     setZoom(1)
-    setRotation(0)
   }
   const [query, setQuery] = useState("")
   const [splitOpen, setSplitOpen] = useState(splitSuggested)
@@ -229,9 +227,6 @@ export function ReviewScreen({
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}>
             Zoom out
           </Button>
-          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setRotation((value) => value + 90)}>
-            Rotate
-          </Button>
           <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setCropOpen(true)}>
             Crop
           </Button>
@@ -249,7 +244,6 @@ export function ReviewScreen({
             fileType={fileType}
             pageCount={pageCount}
             zoom={zoom}
-            rotation={rotation}
           />
         </div>
       </div>
@@ -495,7 +489,6 @@ export function ReviewScreen({
             setFileStamp(Date.now())
             setRetakeOpen(false)
             setZoom(1)
-            setRotation(0)
             router.refresh()
           }}
         />
@@ -510,7 +503,6 @@ export function ReviewScreen({
             setFileStamp(Date.now())
             setCropOpen(false)
             setZoom(1)
-            setRotation(0)
             router.refresh()
           }}
         />

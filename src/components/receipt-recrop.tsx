@@ -1,115 +1,17 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { replaceScannedFile } from "@/app/actions/expenses"
-import { ReceiptCropper } from "@/components/ReceiptCropper"
-import {
-  cropReceipt,
-  decodeReceiptFile,
-  decodeReceiptWithImage,
-  fullFrameCorners,
-  loadOpenCv,
-  methodForAcceptedCrop,
-  rasterToJpegBlob,
-  renderCrop,
-  rotateRaster,
-  type CropMethod,
-  type Point,
-  type Raster,
-} from "@/lib/receiptCrop"
+import { CornerAdjuster } from "@/components/CornerAdjuster"
+import { canvasFromBlob, detectCanvas, insetCorners, renderCanvas, type Point } from "@/lib/receiptScanner"
 import { imagesToPdf, renderPdf } from "@/lib/scanner/pdf"
 
-type LoadedPage = {
-  source: Raster
+type PageShot = {
+  canvas: HTMLCanvasElement
   corners: Point[]
-  autoCorners: Point[]
-  autoMethod: CropMethod
-  confidence: number
-  moved: boolean
-}
-
-type Accepted = {
-  blob: Blob
-  corners: Point[]
-  method: CropMethod
-  image: Raster | null
-}
-
-function combinedMethod(methods: CropMethod[]): CropMethod {
-  if (methods.includes("manual")) return "manual"
-  if (methods.includes("none")) return "none"
-  if (methods.includes("fallback")) return "fallback"
-  return "auto"
-}
-
-async function looksLikePdf(file: Blob) {
-  const bytes = new Uint8Array(await file.slice(0, 5).arrayBuffer())
-  return bytes.length >= 4 && String.fromCharCode(...bytes).startsWith("%PDF")
-}
-
-async function rasterFromImage(file: Blob) {
-  try {
-    return await decodeReceiptFile(file)
-  } catch {
-    return decodeReceiptWithImage(file)
-  }
-}
-
-async function rastersForReceipt(blob: Blob, type: string) {
-  const pdfHint = type.includes("pdf") || (await looksLikePdf(blob))
-  if (!pdfHint) {
-    try {
-      const raster = await decodeReceiptFile(blob)
-      if (raster.width >= 2 && raster.height >= 2) return { rasters: [raster], fromPdf: false }
-    } catch (cause) {
-      if (cause instanceof Error && cause.message.includes("HEIC")) throw cause
-    }
-  }
-  try {
-    const rendered = await renderPdf(blob, { maxLongSide: 2400 })
-    const rasters: Raster[] = []
-    for (const page of rendered.pages) rasters.push(await rasterFromImage(page.blob))
-    if (rasters.length > 0) return { rasters, fromPdf: true }
-  } catch {
-    // Not a PDF, or this PDF could not be drawn. The canvas decoder is next.
-  }
-  const raster = await decodeReceiptWithImage(blob)
-  if (raster.width < 2 || raster.height < 2) throw new Error("Could not open the receipt")
-  return { rasters: [raster], fromPdf: false }
-}
-
-async function thumbnailBlob(raster: Raster) {
-  const width = 400
-  const height = Math.max(1, Math.round((raster.height / raster.width) * width))
-  const full = document.createElement("canvas")
-  full.width = raster.width
-  full.height = raster.height
-  const source = full.getContext("2d")
-  if (!source) throw new Error("Could not prepare the receipt image")
-  source.putImageData(new ImageData(new Uint8ClampedArray(raster.data), raster.width, raster.height), 0, 0)
-  const thumb = document.createElement("canvas")
-  thumb.width = width
-  thumb.height = height
-  thumb.getContext("2d")?.drawImage(full, 0, 0, width, height)
-  const blob = await new Promise<Blob | null>((resolve) => thumb.toBlob(resolve, "image/webp", 0.75))
-  if (!blob) throw new Error("Could not make a thumbnail")
-  return blob
-}
-
-function Shell({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex h-dvh max-w-[100vw] flex-col bg-background">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
-        <h2 className="font-medium">{title}</h2>
-        <button type="button" onClick={onClose} className="min-h-11 px-3 text-sm underline">
-          Cancel
-        </button>
-      </div>
-      <div className="grid flex-1 place-items-center px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{children}</div>
-    </div>
-  )
+  detected: boolean
 }
 
 export function ReceiptRecrop({
@@ -125,16 +27,10 @@ export function ReceiptRecrop({
   onClose: () => void
   onSaved: () => void
 }) {
-  const [sourceIsPdf, setSourceIsPdf] = useState(false)
-  const [pages, setPages] = useState<LoadedPage[]>([])
+  const [pages, setPages] = useState<PageShot[]>([])
   const [index, setIndex] = useState(0)
-  const [accepted, setAccepted] = useState<Array<Accepted | null>>([])
   const [error, setError] = useState<string | null>(null)
-  const [note, setNote] = useState<string | null>(null)
-  const [turning, setTurning] = useState(false)
-  const [working, setWorking] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const lockRef = useRef(false)
+  const [busy, setBusy] = useState(false)
   const page = pages[index] ?? null
 
   useEffect(() => {
@@ -149,34 +45,22 @@ export function ReceiptRecrop({
     let cancelled = false
     ;(async () => {
       try {
-        await loadOpenCv()
         const response = await fetch(src, { cache: "no-store" })
         if (!response.ok) throw new Error("Could not open the receipt")
         const blob = await response.blob()
         const type = `${response.headers.get("content-type") ?? ""} ${blob.type}`.toLowerCase()
-        const opened = await rastersForReceipt(blob, type)
-        const loaded: LoadedPage[] = []
-        for (const source of opened.rasters) {
+        const sources = await sourceCanvases(blob, type)
+        const loaded: PageShot[] = []
+        for (const canvas of sources) {
           if (cancelled) return
-          const detected = await cropReceipt(source).catch(() => ({
-            corners: fullFrameCorners(source.width, source.height),
-            method: "none" as const,
-            confidence: 0,
-          }))
+          const found = await detectCanvas(canvas)
           loaded.push({
-            source,
-            corners: detected.corners,
-            autoCorners: detected.corners,
-            autoMethod: detected.method,
-            confidence: detected.confidence,
-            moved: false,
+            canvas,
+            corners: found ?? insetCorners(canvas.width, canvas.height),
+            detected: Boolean(found),
           })
         }
-        if (cancelled) return
-        if (loaded.length === 0) throw new Error("Could not open the receipt")
-        setSourceIsPdf(opened.fromPdf)
-        setPages(loaded)
-        setAccepted(loaded.map(() => null))
+        if (!cancelled) setPages(loaded)
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not open the receipt")
       }
@@ -186,142 +70,94 @@ export function ReceiptRecrop({
     }
   }, [src])
 
-  async function rotate() {
-    if (!page || lockRef.current) return
-    lockRef.current = true
-    setTurning(true)
-    setNote(null)
+  async function confirm(corners: Point[]) {
+    if (!page) return
+    setBusy(true)
     try {
-      const source = rotateRaster(page.source, 1)
-      const detected = await cropReceipt(source)
-      setPages((current) =>
-        current.map((item, pageIndex) =>
-          pageIndex === index
-            ? {
-                ...item,
-                source,
-                corners: detected.corners,
-                autoCorners: detected.corners,
-                autoMethod: detected.method,
-                confidence: detected.confidence,
-                moved: false,
-              }
-            : item,
-        ),
-      )
-    } catch (cause) {
-      setNote(cause instanceof Error ? cause.message : "Could not rotate the photo")
-    } finally {
-      lockRef.current = false
-      setTurning(false)
-    }
-  }
-
-  async function commit(choice: "crop" | "original") {
-    if (!page || lockRef.current) return
-    const method = choice === "original"
-      ? "none"
-      : methodForAcceptedCrop({ autoMethod: page.autoMethod, moved: page.moved, corners: page.corners })
-    if (!method) {
-      setNote("Drag the four corners onto the receipt, or use the original photo.")
-      return
-    }
-    lockRef.current = true
-    setWorking(true)
-    setNote(null)
-    try {
-      const corners = method === "none" ? fullFrameCorners(page.source.width, page.source.height) : page.corners
-      const rendered = renderCrop(page.source, corners, method, page.confidence)
-      const blob = await rasterToJpegBlob(rendered.image, 0.85)
-      const record: Accepted = {
-        blob,
-        corners: rendered.corners,
-        method: rendered.method,
-        image: index === 0 ? rendered.image : null,
-      }
-      const next = accepted.slice()
-      next[index] = record
-      setAccepted(next)
-      if (index < pages.length - 1) {
+      const next = pages.map((item, pageIndex) => (pageIndex === index ? { ...item, corners, detected: true } : item))
+      setPages(next)
+      if (index < next.length - 1) {
         setIndex(index + 1)
-        setWorking(false)
-        lockRef.current = false
+        setBusy(false)
         return
       }
-      const complete = next.filter((item): item is Accepted => item != null)
-      const first = complete[0]
-      if (complete.length !== pages.length || !first?.image) throw new Error("A page is missing")
-      setSaving(true)
-      const asPdf = sourceIsPdf || complete.length > 1
-      const fileBlob = asPdf ? await imagesToPdf(complete.map((item) => item.blob)) : first.blob
-      const thumb = await thumbnailBlob(first.image)
+      const rendered = []
+      for (const item of next) {
+        rendered.push(await renderCanvas(item.canvas, item.corners, "scan", false))
+      }
+      const first = rendered[0]
+      if (!first) throw new Error("A page is missing")
+      const asPdf = rendered.length > 1
+      const fileBlob = asPdf ? await imagesToPdf(rendered.map((item) => item.blob)) : first.blob
+      const thumb = await thumbnail(first.blob)
       const body = new FormData()
       body.set("projectId", projectId)
       body.set("expenseId", expenseId)
-      body.set("pageCount", String(complete.length))
-      body.set("cropMethod", combinedMethod(complete.map((item) => item.method)))
-      body.set("cropCorners", JSON.stringify(complete.map((item) => item.corners)))
-      body.set(
-        "file",
-        new File([fileBlob], asPdf ? "receipt.pdf" : "receipt.jpg", {
-          type: asPdf ? "application/pdf" : "image/jpeg",
-        }),
-      )
+      body.set("pageCount", String(rendered.length))
+      body.set("cropMethod", "manual")
+      body.set("cropCorners", JSON.stringify(rendered.map((item) => item.corners)))
+      body.set("file", new File([fileBlob], asPdf ? "receipt.pdf" : "receipt.jpg", { type: asPdf ? "application/pdf" : "image/jpeg" }))
       body.set("thumb", new File([thumb], "thumb.webp", { type: "image/webp" }))
       const result = await replaceScannedFile(body)
       if (result.error) throw new Error(result.error)
       toast.success("Saved the cropped receipt")
       onSaved()
     } catch (cause) {
-      setNote(cause instanceof Error ? cause.message : "Could not save the cropped receipt")
-      setSaving(false)
-      setWorking(false)
-      lockRef.current = false
+      toast.error(cause instanceof Error ? cause.message : "Could not save the cropped receipt")
+      setBusy(false)
     }
   }
 
-  if (error) {
-    return (
-      <Shell title="Crop receipt" onClose={onClose}>
-        <p className="max-w-sm text-center text-sm text-red-700">{error}</p>
-      </Shell>
-    )
-  }
-
-  if (!page) {
-    return (
-      <Shell title="Crop receipt" onClose={onClose}>
-        <p className="text-sm text-muted-foreground">Finding the receipt…</p>
-      </Shell>
-    )
-  }
-
   return (
-    <ReceiptCropper
-      image={page.source}
-      corners={page.corners}
-      needsManualCrop={page.autoMethod === "none" && !page.moved}
-      busy={saving || working || turning}
-      busyLabel={saving ? "Saving…" : null}
-      note={note}
-      pageLabel={pages.length > 1 ? `Page ${index + 1} of ${pages.length}` : null}
-      onCancel={onClose}
-      onChange={(corners) => {
-        setPages((current) =>
-          current.map((item, pageIndex) => (pageIndex === index ? { ...item, corners, moved: true } : item)),
-        )
-      }}
-      onUseCrop={() => void commit("crop")}
-      onResetAuto={() => {
-        setNote(null)
-        setPages((current) =>
-          current.map((item, pageIndex) =>
-            pageIndex === index ? { ...item, corners: item.autoCorners, moved: false } : item,
-          ),
-        )
-      }}
-      onUseOriginal={() => void commit("original")}
-      onRotate={() => void rotate()}
-    />
+    <div className="fixed inset-0 z-50 flex h-dvh flex-col bg-background">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+        <h2 className="font-medium">Crop receipt</h2>
+        <button type="button" onClick={onClose} className="min-h-11 px-3 text-sm underline">
+          Cancel
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto p-4">
+        {error ? <p className="text-sm text-red-700">{error}</p> : null}
+        {!error && !page ? <p className="text-sm text-muted-foreground">Finding the receipt…</p> : null}
+        {page ? (
+          <div className="mx-auto grid max-w-3xl gap-3">
+            {pages.length > 1 ? <p className="text-sm text-muted-foreground">Page {index + 1} of {pages.length}</p> : null}
+            {!page.detected ? <p className="text-sm text-muted-foreground">The receipt was not found. Drag the corners onto the paper.</p> : null}
+            <CornerAdjuster
+              image={page.canvas}
+              corners={page.corners}
+              busy={busy}
+              onChange={(corners) => {
+                setPages((current) => current.map((item, pageIndex) => (pageIndex === index ? { ...item, corners } : item)))
+              }}
+              onCancel={onClose}
+              onConfirm={() => void confirm(page.corners)}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
   )
+}
+
+async function sourceCanvases(blob: Blob, type: string) {
+  const header = new Uint8Array(await blob.slice(0, 5).arrayBuffer())
+  const pdf = type.includes("pdf") || String.fromCharCode(...header).startsWith("%PDF")
+  if (!pdf) return [await canvasFromBlob(blob)]
+  const rendered = await renderPdf(blob, { maxLongSide: 2400 })
+  const canvases: HTMLCanvasElement[] = []
+  for (const page of rendered.pages) canvases.push(await canvasFromBlob(page.blob))
+  return canvases
+}
+
+async function thumbnail(blob: Blob) {
+  const bitmap = await createImageBitmap(blob)
+  const canvas = document.createElement("canvas")
+  canvas.width = 400
+  canvas.height = Math.max(1, Math.round((bitmap.height / bitmap.width) * 400))
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  const thumb = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.75))
+  if (!thumb) throw new Error("Could not make a thumbnail")
+  return thumb
 }
