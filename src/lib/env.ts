@@ -9,7 +9,10 @@ const publicSchema = z.object({
 const serverSchema = publicSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_WORKSPACE_ID: z.string().min(1),
+  ANTHROPIC_WORKSPACE_ID: z.preprocess(
+    (value) => (typeof value !== "string" || value.trim() === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
   ANTHROPIC_MODEL: z.preprocess(
     (value) => (value === "" || value == null ? undefined : value),
     z.string().min(1).default("claude-sonnet-5-5"),

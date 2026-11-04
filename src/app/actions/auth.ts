@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
+import { ZodError } from "zod"
 
 import {
   createSession,
@@ -55,6 +56,9 @@ export async function signIn(
   try {
     user = await findLogin(loginId)
   } catch (error) {
+    if (error instanceof ZodError) {
+      return { error: "Sign-in is unavailable right now. Please try again." }
+    }
     return { error: error instanceof Error ? error.message : "Could not check the login." }
   }
   if (!user?.password_hash || !verifyPassword(password, user.password_hash)) {
