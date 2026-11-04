@@ -13,6 +13,7 @@ import {
   type Extraction,
 } from "@/lib/extraction"
 import { simpleDescription } from "@/lib/simple-description"
+import { anthropicClient } from "@/lib/anthropic"
 import { getServerEnv } from "@/lib/env"
 
 type ReceiptMedia =
@@ -69,7 +70,7 @@ export async function extractExpense(
   const bytes = Buffer.from(await downloaded.data.arrayBuffer())
   const type = mediaType(expense.receipt_file_path, bytes)
   const env = getServerEnv()
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  const client = anthropicClient(env)
   const system = extractionSystemPrompt(categoryPromptList(categories))
 
   const requested = options?.categoryId
@@ -311,7 +312,7 @@ async function readReceiptIdentity(path: string) {
   const bytes = Buffer.from(await downloaded.data.arrayBuffer())
   const type = mediaType(path, bytes)
   const env = getServerEnv()
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  const client = anthropicClient(env)
   const media: ReceiptMedia[] =
     type === "application/pdf"
       ? [
@@ -513,7 +514,7 @@ export async function readInvoiceDocumentTotal(invoiceId: string) {
   const bytes = Buffer.from(await downloaded.data.arrayBuffer())
   const type = mediaType(invoice.file_path, bytes)
   const env = getServerEnv()
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  const client = anthropicClient(env)
   const instruction =
     "Read the total amount written on this invoice. Return ONLY JSON: {\"total_amount\": 0.00}. Use the final amount due on the document."
   const content =

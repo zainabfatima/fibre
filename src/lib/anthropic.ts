@@ -1,0 +1,14 @@
+import "server-only"
+
+import Anthropic from "@anthropic-ai/sdk"
+
+import { getServerEnv } from "@/lib/env"
+
+export function anthropicClient(env: ReturnType<typeof getServerEnv>) {
+  return new Anthropic({
+    apiKey: env.ANTHROPIC_API_KEY,
+    defaultHeaders: {
+      "anthropic-workspace-id": env.ANTHROPIC_WORKSPACE_ID,
+    },
+  })
+}

@@ -1,10 +1,10 @@
 import "server-only"
 
-import Anthropic from "@anthropic-ai/sdk"
 import ExcelJS from "exceljs"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
+import { anthropicClient } from "@/lib/anthropic"
 import { getServerEnv } from "@/lib/env"
 import { stripJsonFences } from "@/lib/extraction"
 import { formatCategory } from "@/lib/format"
@@ -192,7 +192,7 @@ function parseClaudeMatches(text: string) {
 
 async function matchWithClaude(rows: SheetRow[], categories: CategoryRef[]) {
   const env = getServerEnv()
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
+  const client = anthropicClient(env)
   const catalog = categories
     .map((category) => `${category.id} | ${formatCategory(category.code, category.name)}`)
     .join("\n")

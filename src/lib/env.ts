@@ -9,6 +9,7 @@ const publicSchema = z.object({
 const serverSchema = publicSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   ANTHROPIC_API_KEY: z.string().min(1),
+  ANTHROPIC_WORKSPACE_ID: z.string().min(1),
   ANTHROPIC_MODEL: z.preprocess(
     (value) => (value === "" || value == null ? undefined : value),
     z.string().min(1).default("claude-sonnet-5-5"),
@@ -43,6 +44,7 @@ export function getServerEnv() {
     ...readPublic(),
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    ANTHROPIC_WORKSPACE_ID: process.env.ANTHROPIC_WORKSPACE_ID,
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   })
 }
