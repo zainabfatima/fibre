@@ -4,7 +4,8 @@ import { useState, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
-import { saveScannedReceipt } from "@/app/actions/expenses"
+import { discardReceiptUpload, saveScannedReceipt } from "@/app/actions/expenses"
+import { storeReceiptBeforeSave } from "@/lib/store-receipt-files"
 import { ReceiptScanner } from "@/components/scanner/receipt-scanner"
 import { formatCategory } from "@/lib/format"
 import { sha256 } from "@/lib/scanner/hash"
@@ -146,21 +147,36 @@ export function UploadQueue({
         { id, name: pdf.name || "PDF receipt", status: "uploading", detail: "Saving the PDF" },
         ...current,
       ])
+      let storedPaths: string[] = []
       try {
         const hash = await sha256(pdf)
+        const stored = await storeReceiptBeforeSave({
+          projectId,
+          fileType: "pdf",
+          file: pdf,
+          originals: [],
+          thumb: null,
+        })
+        storedPaths = stored.uploads.map((item) => item.path)
         const body = new FormData()
+        body.set("stored", "true")
+        body.set("id", stored.id)
+        body.set("filePath", stored.filePath)
+        body.set("fileType", "pdf")
+        body.set("originalPaths", "[]")
+        body.set("thumbPath", "")
         body.set("projectId", projectId)
         body.set("hashes", hash)
         body.set("captureType", "single")
         body.set("pageCount", String(await pdfPageCount(pdf)))
         body.set("needsManualCrop", "false")
-        body.set("file", pdf)
         if (lockedCategory != null) body.set("categoryId", String(lockedCategory))
         if (reimburse) {
           body.set("reimbursement", "true")
           body.set("reimbursementName", reimburseName.trim())
         }
         const uploaded = await saveScannedReceipt(body)
+        storedPaths = []
         if (uploaded.error || !uploaded.id) {
           hadProblem = true
           update(id, {
@@ -185,6 +201,7 @@ export function UploadQueue({
         firstReady = firstReady ?? uploaded.id
       } catch (cause) {
         hadProblem = true
+        if (storedPaths.length) await discardReceiptUpload(projectId, storedPaths).catch(() => undefined)
         update(id, { status: "error", detail: cause instanceof Error ? cause.message : "Upload failed" })
       }
     }
@@ -237,8 +254,26 @@ export function UploadQueue({
         { id, name: result.pageCount > 1 ? `Scan · ${result.pageCount} pages` : "Scanned receipt", status: "uploading", detail: "Saving the scan" },
         ...current,
       ])
+      let storedPaths: string[] = []
       try {
+        const file = result.fileType === "pdf"
+          ? new File([result.fileBlob], "receipt.pdf", { type: "application/pdf" })
+          : new File([result.fileBlob], "receipt.jpg", { type: "image/jpeg" })
+        const stored = await storeReceiptBeforeSave({
+          projectId,
+          fileType: result.fileType,
+          file,
+          originals: result.originals,
+          thumb: result.thumbnailBlob,
+        })
+        storedPaths = stored.uploads.map((item) => item.path)
         const body = new FormData()
+        body.set("stored", "true")
+        body.set("id", stored.id)
+        body.set("filePath", stored.filePath)
+        body.set("fileType", result.fileType)
+        body.set("originalPaths", JSON.stringify(stored.originals))
+        body.set("thumbPath", stored.thumbPath ?? "")
         body.set("projectId", projectId)
         body.set("hashes", result.pageHashes.join(","))
         body.set("captureType", result.captureType)
@@ -246,22 +281,13 @@ export function UploadQueue({
         body.set("cropMethod", result.cropMethod)
         body.set("needsManualCrop", result.needsManualCrop ? "true" : "false")
         body.set("cropCorners", JSON.stringify(result.pages.map((page) => page.cropCorners)))
-        body.set(
-          "file",
-          result.fileType === "pdf"
-            ? new File([result.fileBlob], "receipt.pdf", { type: "application/pdf" })
-            : new File([result.fileBlob], "receipt.jpg", { type: "image/jpeg" }),
-        )
-        result.originals.forEach((original) => {
-          body.append("original", new File([original], "original.jpg", { type: original.type || "image/jpeg" }))
-        })
-        body.set("thumb", new File([result.thumbnailBlob], "thumb.webp", { type: result.thumbnailBlob.type || "image/webp" }))
         if (lockedCategory != null) body.set("categoryId", String(lockedCategory))
         if (reimburse) {
           body.set("reimbursement", "true")
           body.set("reimbursementName", reimburseName.trim())
         }
         const uploaded = await saveScannedReceipt(body)
+        storedPaths = []
         if (uploaded.error || !uploaded.id) {
           hadProblem = true
           update(id, {
@@ -286,6 +312,7 @@ export function UploadQueue({
         firstReady = firstReady ?? uploaded.id
       } catch (cause) {
         hadProblem = true
+        if (storedPaths.length) await discardReceiptUpload(projectId, storedPaths).catch(() => undefined)
         update(id, { status: "error", detail: cause instanceof Error ? cause.message : "Upload failed" })
       }
     }

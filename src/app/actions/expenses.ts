@@ -7,6 +7,7 @@ import { editedDescription, simpleDescription } from "@/lib/simple-description"
 import { deriveInvoiceBillingStatus } from "@/lib/labels"
 import { requireAdmin } from "@/lib/db"
 import { centsToMoney, moneyToCents, parseMoneyInput } from "@/lib/money"
+import { isReceiptPathForProject, isUuid, planReceiptPaths, samePathList } from "@/lib/receipt-storage"
 import type { Database } from "@/types/database"
 
 function auditOriginalPath(projectId: string, id: string) {
@@ -98,7 +99,188 @@ async function receiptFileKind(file: File) {
   return null
 }
 
+function parseStringList(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || value.length === 0) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) return []
+    return parsed as string[]
+  } catch {
+    return []
+  }
+}
+
+export async function prepareReceiptUpload(input: {
+  projectId: string
+  fileType: "image" | "pdf"
+  originalCount: number
+  includeThumb: boolean
+}) {
+  const fileType = input?.fileType === "pdf" ? "pdf" : "image"
+  const originalCount = Number(input?.originalCount)
+  const id = crypto.randomUUID()
+  const plan = planReceiptPaths(String(input?.projectId ?? ""), id, fileType, originalCount, Boolean(input?.includeThumb))
+  if (!plan) return { error: "The scanned receipt is missing" }
+  const supabase = await requireAdmin()
+  const paths = [plan.filePath, ...plan.originals, ...(plan.thumbPath ? [plan.thumbPath] : [])]
+  const uploads: { path: string; token: string }[] = []
+  for (const path of paths) {
+    const created = await supabase.storage.from("receipts").createSignedUploadUrl(path)
+    if (created.error || !created.data?.token) return { error: created.error?.message || "The photo could not be stored" }
+    uploads.push({ path, token: created.data.token })
+  }
+  return { id, filePath: plan.filePath, originals: plan.originals, thumbPath: plan.thumbPath, uploads }
+}
+
+export async function discardReceiptUpload(projectId: string, paths: string[]) {
+  if (!isUuid(projectId)) return { error: "The scanned receipt is missing" }
+  const safe = paths.filter((path) => isReceiptPathForProject(projectId, path))
+  if (safe.length === 0) return { ok: true as const }
+  const supabase = await requireAdmin()
+  await supabase.storage.from("receipts").remove(safe)
+  return { ok: true as const }
+}
+
+async function saveStoredReceipt(formData: FormData) {
+  const projectId = String(formData.get("projectId") ?? "")
+  const id = String(formData.get("id") ?? "")
+  const fileType = formData.get("fileType") === "pdf" ? "pdf" : "image"
+  const hashes = String(formData.get("hashes") ?? "")
+    .split(",")
+    .map((hash) => hash.toLowerCase())
+    .filter((hash) => /^[0-9a-f]{64}$/.test(hash))
+  const filePath = String(formData.get("filePath") ?? "")
+  const originalPaths = parseStringList(formData.get("originalPaths"))
+  const thumbRaw = String(formData.get("thumbPath") ?? "").trim()
+  const requestedThumb = thumbRaw.length > 0 ? thumbRaw : null
+  const plan = planReceiptPaths(projectId, id, fileType, originalPaths.length, requestedThumb != null)
+  if (
+    !plan ||
+    hashes.length === 0 ||
+    plan.filePath !== filePath ||
+    plan.thumbPath !== requestedThumb ||
+    !samePathList(plan.originals, originalPaths)
+  ) {
+    return { error: "The scanned receipt is missing" }
+  }
+
+  const captureRaw = String(formData.get("captureType") ?? "single")
+  const captureType = captureRaw === "long" || captureRaw === "multi_page" ? captureRaw : "single"
+  const pageCount = Math.max(1, Math.min(20, Number(formData.get("pageCount") ?? (hashes.length || 1))))
+  const cropMethodRaw = String(formData.get("cropMethod") ?? "")
+  const cropMethod =
+    cropMethodRaw === "auto" || cropMethodRaw === "fallback" || cropMethodRaw === "manual" || cropMethodRaw === "none"
+      ? cropMethodRaw
+      : null
+  let cropCorners: Database["public"]["Tables"]["expenses"]["Insert"]["crop_corners"] = null
+  const cornersRaw = String(formData.get("cropCorners") ?? "")
+  if (cornersRaw) {
+    try {
+      const parsed = JSON.parse(cornersRaw) as unknown
+      if (Array.isArray(parsed)) cropCorners = parsed as Database["public"]["Tables"]["expenses"]["Insert"]["crop_corners"]
+    } catch {
+      cropCorners = null
+    }
+  }
+
+  const supabase = await requireAdmin()
+  const uploadedPaths = [filePath, ...originalPaths, ...(requestedThumb ? [requestedThumb] : [])]
+  const removeUploaded = () => supabase.storage.from("receipts").remove(uploadedPaths)
+  const existing = await lookupPageHashes(projectId, hashes)
+  if ("error" in existing && existing.error) {
+    await removeUploaded()
+    return { error: existing.error }
+  }
+  if (existing.duplicate) {
+    await removeUploaded()
+    return {
+      error: `Duplicate — page ${existing.duplicate.page} matches a receipt from ${existing.duplicate.date || "an earlier upload"}`,
+      existingId: existing.duplicate.id,
+    }
+  }
+
+  const categoryRaw = String(formData.get("categoryId") ?? "").trim()
+  let categoryId: number | null = null
+  if (categoryRaw) {
+    const parsed = Number(categoryRaw)
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      await removeUploaded()
+      return { error: "Pick a valid category" }
+    }
+    const { data: category, error: categoryError } = await supabase.from("categories").select("id").eq("id", parsed).maybeSingle()
+    if (categoryError) {
+      await removeUploaded()
+      return { error: categoryError.message }
+    }
+    if (!category) {
+      await removeUploaded()
+      return { error: "Pick a valid category" }
+    }
+    categoryId = category.id
+  }
+
+  const scan = await supabase.storage.from("receipts").exists(filePath)
+  if (scan.error || !scan.data) {
+    await removeUploaded()
+    return { error: "The scanned receipt is missing" }
+  }
+  for (const path of originalPaths) {
+    const found = await supabase.storage.from("receipts").exists(path)
+    if (found.error || !found.data) {
+      await removeUploaded()
+      return { error: "The original photo could not be stored" }
+    }
+  }
+  let thumbPath = requestedThumb
+  if (thumbPath) {
+    const found = await supabase.storage.from("receipts").exists(thumbPath)
+    if (found.error || !found.data) thumbPath = null
+  }
+
+  const { error } = await supabase.from("expenses").insert({
+    id,
+    project_id: projectId,
+    amount: "0.00",
+    receipt_file_path: filePath,
+    receipt_file_hash: hashes[0],
+    receipt_thumbnail_path: thumbPath,
+    original_file_path: originalPaths[0] ?? null,
+    original_file_paths: originalPaths,
+    crop_corners: cropCorners,
+    crop_method: cropMethod,
+    needs_manual_crop: formData.get("needsManualCrop") === "true" || cropMethod === "none",
+    verification_status: "needs_review",
+    page_count: pageCount,
+    file_type: fileType === "pdf" ? "pdf" : "image",
+    capture_type: captureType,
+    is_reimbursement: formData.get("reimbursement") === "true",
+    reimbursement_name: reimbursementNameFrom(formData),
+    ...(categoryId != null ? { category_id: categoryId } : {}),
+  })
+  if (error) {
+    await removeUploaded()
+    return { error: error.message }
+  }
+  const { error: hashError } = await supabase.from("receipt_page_hashes").insert(
+    hashes.map((hash, index) => ({
+      project_id: projectId,
+      expense_id: id,
+      page_number: index + 1,
+      hash,
+    })),
+  )
+  if (hashError) {
+    await supabase.from("expenses").delete().eq("id", id)
+    await removeUploaded()
+    return { error: hashError.message }
+  }
+
+  refresh(projectId)
+  return { id }
+}
+
 export async function saveScannedReceipt(formData: FormData) {
+  if (formData.get("stored") === "true") return saveStoredReceipt(formData)
   const projectId = String(formData.get("projectId") ?? "")
   const hashes = String(formData.get("hashes") ?? "")
     .split(",")
